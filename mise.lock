@@ -68,6 +68,10 @@ url = "https://github.com/google/osv-scanner/releases/download/v2.4.0/multiple.i
 version = "6484ca1961fab54fd594aef9479880d0522bdbcd"
 backend = "pipx:git+https://github.com/microHoffman/wake.git"
 
+[[tools.rust]]
+version = "1.97.1"
+backend = "core:rust"
+
 [[tools.solidity]]
 version = "0.8.35"
 backend = "github:ethereum/solidity"

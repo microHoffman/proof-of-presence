@@ -79,6 +79,11 @@ contract VillageAccess is
         return VillageRoles.BOOKING_PLATFORM_ROLE;
     }
 
+    /// @notice Returns the shared citizenship-operator role ID.
+    function CITIZEN_OPERATOR_ROLE() external pure returns (bytes32) {
+        return VillageRoles.CITIZEN_OPERATOR_ROLE;
+    }
+
     /// @inheritdoc AccessControlUpgradeable
     function supportsInterface(
         bytes4 interfaceId

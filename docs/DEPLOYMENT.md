@@ -9,7 +9,7 @@ Example TDF config:
 
 ```json
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "villageSlug": "example-village",
   "chainId": 11142220,
   "deploymentProfile": "tdf",
@@ -32,6 +32,14 @@ Example TDF config:
     "initialSupply": "0",
     "apiOperatorCanMint": true
   },
+  "citizenNft": {
+    "name": "Example Village Citizen",
+    "symbol": "EXAMPLE CIT",
+    "baseURI": "https://example.invalid/citizens/",
+    "operators": [
+      "0x5555555555555555555555555555555555555555"
+    ]
+  },
   "presenceToken": {
     "name": "Example Presence",
     "symbol": "PRES",
@@ -51,7 +59,12 @@ Example TDF config:
 ```
 
 Use decimal strings for integers that may exceed JavaScript's safe integer range. The selected RPC chain ID must
-match `chainId`. A TDF profile requires a treasury and enables every module.
+match `chainId`. A TDF profile requires a treasury and enables every module. `token-village`,
+`tokenized-stays-village`, and `tdf` automatically include `VillageCitizenNFT`; `minimal-village` remains unchanged.
+Every deployment that selects CitizenNFT requires a nonempty `citizenNft.baseURI`. Its default name is the title-cased
+deployment slug plus `Citizen`, its default symbol is the deployment slug plus `CIT`, and its operators default to an
+empty list. Citizen operators are taken only from `citizenNft.operators` or explicit `initialRoleGrants`; they are
+never inferred from `apiOperator`.
 
 ## Commands and records
 
@@ -66,6 +79,7 @@ Deploy one allowlisted contract and its required dependencies:
 
 ```sh
 yarn deploy:contract -- --contract TDFTransferPolicy --config config.json --network celoSepolia
+yarn deploy:contract -- --contract VillageCitizenNFT --config config.json --network celoSepolia
 ```
 
 Canonical manifest paths are:
@@ -122,13 +136,14 @@ whose fields or meanings have changed.
 
 This repository uses:
 
-- config schema `3`;
-- manifest schema `3`, which records `configSchemaVersion: 3`;
+- config schema `4`;
+- manifest schema `4`, which records `configSchemaVersion: 4`;
 - consumer export schema `2`.
 
-Config parsing requires the literal `3`; there is no default. The version is part of the canonical config hash.
-Manifest parsing also requires the exact current literals. The current schema renamed the profile to `tdf` and the
-record kind to `deploymentKind`, so older shapes are intentionally rejected instead of accepted through aliases.
+Config parsing requires the literal `4`; there is no default. The version is part of the canonical config hash.
+Manifest parsing also requires the exact current literals. Version 4 adds CitizenNFT configuration and normalized
+module state, so older shapes are intentionally rejected instead of accepted through aliases. Consumer exports remain
+at schema version 2 because their dynamic contract record already represents the new address and ABI.
 
 Schema versions are independent of Solidity versions, proxy implementation revisions, `reinitializer(n)`, and
 Ignition's internal journal format. Increase a schema version when a breaking JSON field, type, invariant, or meaning

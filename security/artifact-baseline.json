@@ -3,7 +3,7 @@
   "contracts": {
     "CommunityToken": {
       "deployedBytecodeBytes": 11703,
-      "deployedBytecodeSha256": "930e911640c8645a04bccdcea133ab25fea6ad36b90cf8ba25e4f1b32eee7ad0",
+      "deployedBytecodeSha256": "f4e3ee41b9da4c6248d6b81ef03853eb0f861e86d2d7539690b116bd10867cee",
       "events": {
         "Approval(address,address,uint256)": "0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925",
         "EIP712DomainChanged()": "0x0a6387c9ea3628b88a633bb4f3b151770f70085117a15f9bf3787cda53f13d31",
@@ -57,7 +57,7 @@
     },
     "TDFTransferPolicy": {
       "deployedBytecodeBytes": 2022,
-      "deployedBytecodeSha256": "8afb093fb1790c5bc2985323f4cda186b2a4743f88035c97b6045f465aa5c773",
+      "deployedBytecodeSha256": "c0c9555fadda97645b79c0919b481993ee7b8911635047f4a556e92d12bf5fa8",
       "events": {
         "AllowedCounterpartyChanged(address,bool)": "0xf7070e38ee242922344baf4d713f72dd0e6987e5ad1c0e0d5730603e9b5e0577",
         "OwnershipTransferStarted(address,address)": "0x38d16b8cac22d99fc7c124b9cd0de2d3fa1faef420bfe791d8c362d765e22700",
@@ -81,11 +81,11 @@
         "treasury()": "0x61d027b3"
       },
       "sourceName": "src/profiles/tdf/TDFTransferPolicy.sol",
-      "storageLayoutSha256": "6167f97d00ab3ae161c480f30cea0ee0ef2159b681df6c7f06ab2767c409973d"
+      "storageLayoutSha256": "c193e12ead1de2e1da9a15acd73733395d68ea3ebf793bb4826e62be5fe54003"
     },
     "TokenizedStays": {
       "deployedBytecodeBytes": 19135,
-      "deployedBytecodeSha256": "ac964083b37ca4e60437b5f939a9977a7f2a57d7b8dde7a581e51d2ac3cefc11",
+      "deployedBytecodeSha256": "f3313c906796a2b6cb1ef48f40bf0f9bfe3157c8dbcad91251ae279a1e80acdb",
       "events": {
         "BookingBalanceReconciled(address,uint256,uint256,uint256)": "0x0f0e9684b94e4d0aae24472a23baa23e5f080b7483136ff3d7a74c8b83415d27",
         "BookingCanceled(address,uint16,uint16,uint256)": "0xa8a007a8f6d181846b3661a47edb28c9b4d098dc24b7930a6d82b8e60882f817",
@@ -154,8 +154,8 @@
       "storageLayoutSha256": "f846b023549275be2e0c1636ca4bec256cd67a0365c39781e76ec879398473a8"
     },
     "VillageAccess": {
-      "deployedBytecodeBytes": 9429,
-      "deployedBytecodeSha256": "da0df6709e94519799ab9d8922fd59883aed0d0bfdd3e4a3d63895c93165f8b6",
+      "deployedBytecodeBytes": 9490,
+      "deployedBytecodeSha256": "de05c976aa9f38b55ab140940c633fbb40124c359b6e784c6ba8d89b8686d6f5",
       "events": {
         "DefaultAdminDelayChangeCanceled()": "0x2b1fa2edafe6f7b9e97c1a9e0c3660e645beb2dcaa2d45bdbf9beaf5472e1ec5",
         "DefaultAdminDelayChangeScheduled(uint48,uint48)": "0xf1038c18cf84a56e432fdbfaf746924b7ea511dfe03a6506a0ceba4888788d9b",
@@ -170,6 +170,7 @@
       "functions": {
         "BOOKING_MANAGER_ROLE()": "0x7c47b3f7",
         "BOOKING_PLATFORM_ROLE()": "0x506bfe63",
+        "CITIZEN_OPERATOR_ROLE()": "0x4adee5c2",
         "DEFAULT_ADMIN_ROLE()": "0xa217fddf",
         "MINTER_ROLE()": "0xd5391393",
         "UPGRADE_INTERFACE_VERSION()": "0xad3cb1cc",
@@ -201,9 +202,74 @@
       "sourceName": "src/village/access/VillageAccess.sol",
       "storageLayoutSha256": "f846b023549275be2e0c1636ca4bec256cd67a0365c39781e76ec879398473a8"
     },
+    "VillageCitizenNFT": {
+      "deployedBytecodeBytes": 14992,
+      "deployedBytecodeSha256": "37f888d8f2b20bb00d640897f0c855c0b0f5e87592a5031e11ba648255b98b20",
+      "events": {
+        "Approval(address,address,uint256)": "0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925",
+        "ApprovalForAll(address,address,bool)": "0x17307eab39ab6107e8899845ad3d59bd9653f200f220920489ca2b5937696c31",
+        "BaseURIChanged(string,string)": "0xc41b7cb64e5be01af4afc2641afc861432136270f4206b7773f229b658b96699",
+        "BatchMetadataUpdate(uint256,uint256)": "0x6bd5c950a8d8df17f772f5af37cb3655737899cbf903264b9795592da439661c",
+        "CitizenshipIssued(address,address,uint256,bytes32,uint64)": "0x02d4a954d9eb5db7add39806f1ed0d16d5680eb898c5f74447a94d63f343ad17",
+        "CitizenshipOperatorBurned(address,address,uint256,bytes32,uint8)": "0x005adc2d2c31b8ecb8690a1488b100fb0453b74593b5a2765c90110184871309",
+        "CitizenshipRecovered(address,address,address,uint256,uint256,bytes32,bytes32)": "0x22b2331ef4f315e7d0253cea617ac300559ac9cdf5de0f768280b1e5fb123e83",
+        "CitizenshipSelfBurned(address,uint256,bytes32)": "0x422dd3694837471a9217492773700ad484f33a20494f076cf016f91821e656d0",
+        "Initialized(uint64)": "0xc7f505b2f371ae2175ee4913f4499e1f2633a7b5936321eed1cdaeb6115181d2",
+        "Locked(uint256)": "0x032bc66be43dbccb7487781d168eb7bda224628a3b2c3388bdf69b532a3a1611",
+        "MetadataUpdate(uint256)": "0xf8e1a15aba9398e019f0b49df1a4fde98ee17ae345cb5f6b5e2c27f5033e8ce7",
+        "OwnershipTransferStarted(address,address)": "0x38d16b8cac22d99fc7c124b9cd0de2d3fa1faef420bfe791d8c362d765e22700",
+        "OwnershipTransferred(address,address)": "0x8be0079c531659141344cd1fd0a4f28419497f9722a3daafe3b4186f6b6457e0",
+        "RoleAuthorityChanged(address,address)": "0x4822b20475bf49b7ed45df4e141c1457253c1d61eb9ce32c5ff928ec938eeedf",
+        "Transfer(address,address,uint256)": "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+        "Unlocked(uint256)": "0xf27b6ce5b2f5e68ddb2fd95a8a909d4ecf1daaac270935fff052feacb24f1842",
+        "Upgraded(address)": "0xbc7cd75a20ee27fd9adebab32041f755214dbc6bffa90cc0225b39da2e5c2d3b"
+      },
+      "functions": {
+        "UPGRADE_INTERFACE_VERSION()": "0xad3cb1cc",
+        "acceptOwnership()": "0x79ba5097",
+        "approve(address,uint256)": "0x095ea7b3",
+        "balanceOf(address)": "0x70a08231",
+        "baseURI()": "0x6c0360eb",
+        "burn(uint256)": "0x42966c68",
+        "citizenshipInfo(address)": "0x3ca7bc44",
+        "getApproved(uint256)": "0x081812fc",
+        "hasCitizenship(address)": "0x6fb07fc9",
+        "initialize(string,string,string,address,address)": "0xd6d0faee",
+        "isApprovedForAll(address,address)": "0xe985e9c5",
+        "issue(address,bytes32)": "0x39b21937",
+        "locked(uint256)": "0xb45a3c0e",
+        "name()": "0x06fdde03",
+        "operatorBurn(uint256,uint8)": "0x62f96fb9",
+        "owner()": "0x8da5cb5b",
+        "ownerOf(uint256)": "0x6352211e",
+        "pendingOwner()": "0xe30c3978",
+        "proxiableUUID()": "0x52d1902d",
+        "recover(uint256,address,bytes32)": "0x2e8d8acb",
+        "renounceOwnership()": "0x715018a6",
+        "roleAuthority()": "0xabf19e4f",
+        "safeTransferFrom(address,address,uint256)": "0x42842e0e",
+        "safeTransferFrom(address,address,uint256,bytes)": "0xb88d4fde",
+        "setApprovalForAll(address,bool)": "0xa22cb465",
+        "setBaseURI(string)": "0x55f804b3",
+        "setRoleAuthority(address)": "0x163c2801",
+        "supportsInterface(bytes4)": "0x01ffc9a7",
+        "symbol()": "0x95d89b41",
+        "tokenByIndex(uint256)": "0x4f6ccce7",
+        "tokenIdOf(address)": "0x773c02d4",
+        "tokenOfOwnerByIndex(address,uint256)": "0x2f745c59",
+        "tokenURI(uint256)": "0xc87b56dd",
+        "totalCitizens()": "0xbd7b09e4",
+        "totalSupply()": "0x18160ddd",
+        "transferFrom(address,address,uint256)": "0x23b872dd",
+        "transferOwnership(address)": "0xf2fde38b",
+        "upgradeToAndCall(address,bytes)": "0x4f1ef286"
+      },
+      "sourceName": "src/village/citizenship/VillageCitizenNFT.sol",
+      "storageLayoutSha256": "f846b023549275be2e0c1636ca4bec256cd67a0365c39781e76ec879398473a8"
+    },
     "VillagePresenceToken": {
       "deployedBytecodeBytes": 12152,
-      "deployedBytecodeSha256": "8fea7f2c1af6cb28fe95fcc8b1f6e91c2c17557a76ac8db5d4b1543575623fbd",
+      "deployedBytecodeSha256": "9d3701bb053947e666daf80c7daeeb3ee7951f56b749c9fab661d6a7c2bbcfe6",
       "events": {
         "Approval(address,address,uint256)": "0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925",
         "BurnAllUserTokens(address)": "0x94f487081fa4538b2d02a6ad0e4d80a512d428f3bbfaf74d96ee177063ece9a7",
@@ -264,7 +330,7 @@
     },
     "VillageSweatToken": {
       "deployedBytecodeBytes": 12152,
-      "deployedBytecodeSha256": "d6e29354e85d205a26184c1513a62b52d4cad94f14c94b6f0375bba1c7a86530",
+      "deployedBytecodeSha256": "a3408917be4480ef428d44ea02788114b67a65d77ca601249d8e62f33200d010",
       "events": {
         "Approval(address,address,uint256)": "0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925",
         "BurnAllUserTokens(address)": "0x94f487081fa4538b2d02a6ad0e4d80a512d428f3bbfaf74d96ee177063ece9a7",

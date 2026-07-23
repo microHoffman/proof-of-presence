@@ -5,13 +5,14 @@ lockfile = true
 z3 = "github:Z3Prover/z3"
 
 [tools]
+rust = "1.97.1"
 node = "22.22.2"
 yarn = "1.22.22"
 uv = "0.11.29"
 solidity = "0.8.35"
 osv-scanner = "2.4.0"
 lefthook = "2.1.10"
-"cargo:https://github.com/Certora/gambit" = "tag:v1.0.6"
+"cargo:https://github.com/Certora/gambit" = { version = "tag:v1.0.6", depends = ["rust"] }
 
 [tools."pipx:git+https://github.com/microHoffman/wake.git"]
 version = "6484ca1961fab54fd594aef9479880d0522bdbcd"

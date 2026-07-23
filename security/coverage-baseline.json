@@ -24,14 +24,19 @@
       "percent": 100
     },
     "src/village/access/VillageAccess.sol": {
-      "hit": 15,
-      "found": 22,
-      "percent": 68.18
+      "hit": 16,
+      "found": 23,
+      "percent": 69.57
     },
     "src/village/tokens/ERC20NonTransferableDecaying.sol": {
       "hit": 150,
       "found": 158,
       "percent": 94.94
+    },
+    "src/village/citizenship/VillageCitizenNFT.sol": {
+      "hit": 98,
+      "found": 101,
+      "percent": 97.03
     },
     "src/village/tokens/VillagePresenceToken.sol": {
       "hit": 1,

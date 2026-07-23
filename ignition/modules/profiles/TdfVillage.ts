@@ -3,6 +3,7 @@ import VillageAccessModule from '../contracts/VillageAccess.js';
 import VillagePresenceTokenModule from '../contracts/VillagePresenceToken.js';
 import VillageSweatTokenModule from '../contracts/VillageSweatToken.js';
 import TdfTokenizedStaysModule from './TdfTokenizedStays.js';
+import VillageCitizenNFTModule from '../contracts/VillageCitizenNFT.js';
 
 export const TDF_VILLAGE_MODULE_ID = 'TdfVillageModule';
 
@@ -21,6 +22,7 @@ export default buildModule(TDF_VILLAGE_MODULE_ID, (m) => {
     m.useModule(VillagePresenceTokenModule);
   const {villageSweatToken, villageSweatTokenImplementation, villageSweatTokenProxy} =
     m.useModule(VillageSweatTokenModule);
+  const {citizenNft, citizenNftImplementation, citizenNftProxy} = m.useModule(VillageCitizenNFTModule);
 
   return {
     villageAccess,
@@ -39,5 +41,8 @@ export default buildModule(TDF_VILLAGE_MODULE_ID, (m) => {
     tokenizedStaysImplementation,
     tokenizedStaysProxy,
     tdfTransferPolicy,
+    citizenNft,
+    citizenNftImplementation,
+    citizenNftProxy,
   };
 });

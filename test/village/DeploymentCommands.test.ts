@@ -32,13 +32,37 @@ async function deployAccess(slug: string) {
   const outputRoot = await mkdtemp(path.join(tmpdir(), 'village-command-'));
   const chainId = Number((await ethers.provider.getNetwork()).chainId);
   const config: VillageDeploymentConfig = {
-    schemaVersion: 3,
+    schemaVersion: 4,
     villageSlug: slug,
     chainId,
     deploymentProfile: 'minimal-village',
     ownership: {mode: 'direct', finalOwner: {type: 'eoa', address: owner.address}},
     modules: [],
     apiOperator: apiOperator.address,
+  };
+  const result = await deployVillage(config, {
+    ethers,
+    upgrades: upgradesApi,
+    ignition: connection.ignition,
+    networkName: 'default',
+    outputRoot,
+  });
+  return {...result, owner};
+}
+
+async function deployCitizenNft(slug: string) {
+  const [, owner, apiOperator] = await ethers.getSigners();
+  const outputRoot = await mkdtemp(path.join(tmpdir(), 'village-command-'));
+  const chainId = Number((await ethers.provider.getNetwork()).chainId);
+  const config: VillageDeploymentConfig = {
+    schemaVersion: 4,
+    villageSlug: slug,
+    chainId,
+    deploymentProfile: 'minimal-village',
+    ownership: {mode: 'direct', finalOwner: {type: 'eoa', address: owner.address}},
+    modules: ['citizenNft'],
+    apiOperator: apiOperator.address,
+    citizenNft: {baseURI: 'https://citizen.example/metadata/'},
   };
   const result = await deployVillage(config, {
     ethers,
@@ -74,6 +98,35 @@ describe('Deployment commands', function () {
       status: 'prepared',
     });
     expect(manifest.upgradeHistory![0].implementationCodeHash).to.match(/^0x[0-9a-f]{64}$/);
+  });
+
+  it('prepares and submits a VillageCitizenNFT upgrade through the canonical UUPS registry', async function () {
+    const {manifestPath} = await deployCitizenNft('command-prepare-citizen-upgrade');
+    const prepared = await prepareUpgradeCommand(
+      {
+        manifestPath,
+        contractName: 'VillageCitizenNFT',
+        implementation: 'VillageCitizenNFTUpgradeMock',
+        version: 'citizen-prepared-test',
+      },
+      upgradeContext(),
+    );
+
+    expect(prepared.upgradeHistory).to.have.length(1);
+    expect(prepared.upgradeHistory![0]).to.include({
+      contractName: 'VillageCitizenNFT',
+      nextArtifact: 'VillageCitizenNFTUpgradeMock',
+      status: 'prepared',
+    });
+
+    const executed = await ownerSubmitCommand(
+      {manifestPath, upgrade: 'VillageCitizenNFT:citizen-prepared-test'},
+      {ethers, provider: connection.provider, networkName: 'default'},
+    );
+    expect(executed.upgradeHistory![0].status).to.equal('executed');
+    expect(executed.contracts.VillageCitizenNFT.implementationAddress).to.equal(
+      executed.upgradeHistory![0].newImplementation,
+    );
   });
 
   it('rejects owner status on the wrong chain without rewriting the manifest', async function () {

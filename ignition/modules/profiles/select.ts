@@ -6,6 +6,7 @@ import CommunityTokenModule from '../contracts/CommunityToken.js';
 import VillagePresenceTokenModule from '../contracts/VillagePresenceToken.js';
 import VillageSweatTokenModule from '../contracts/VillageSweatToken.js';
 import TokenizedStaysModule from '../contracts/TokenizedStays.js';
+import VillageCitizenNFTModule from '../contracts/VillageCitizenNFT.js';
 import TDFTransferPolicyModule from '../contracts/TDFTransferPolicy.js';
 import MinimalVillageModule from './MinimalVillage.js';
 import TokenVillageModule from './TokenVillage.js';
@@ -16,7 +17,7 @@ import TdfVillageModule from './TdfVillage.js';
 
 function deploymentBits(modules: NormalizedModules): string {
   // Keep this field order stable: the bit string is part of a custom graph's persistent Ignition Module ID.
-  return [
+  const legacyBits = [
     modules.communityToken,
     modules.presenceToken,
     modules.sweatToken,
@@ -25,6 +26,8 @@ function deploymentBits(modules: NormalizedModules): string {
   ]
     .map((enabled) => (enabled ? '1' : '0'))
     .join('');
+  // Preserve every pre-v4 custom Module ID when CitizenNFT is disabled.
+  return modules.citizenNft ? `${legacyBits}1` : legacyBits;
 }
 
 /**
@@ -35,9 +38,9 @@ export function selectVillageProfileModule(modules: NormalizedModules): Ignition
   const bits = deploymentBits(modules);
   if (bits === '00001') return TDFTransferPolicyModule;
   if (bits === '00000') return MinimalVillageModule;
-  if (bits === '10000') return TokenVillageModule;
-  if (bits === '10010') return TokenizedStaysVillageModule;
-  if (bits === '11111') return TdfVillageModule;
+  if (bits === '100001') return TokenVillageModule;
+  if (bits === '100101') return TokenizedStaysVillageModule;
+  if (bits === '111111') return TdfVillageModule;
 
   return buildModule(`CustomVillageModule_${bits}`, (m) => {
     const results: IgnitionModuleResult<string> = {};
@@ -49,6 +52,7 @@ export function selectVillageProfileModule(modules: NormalizedModules): Ignition
     }
     if (modules.presenceToken) Object.assign(results, m.useModule(VillagePresenceTokenModule));
     if (modules.sweatToken) Object.assign(results, m.useModule(VillageSweatTokenModule));
+    if (modules.citizenNft) Object.assign(results, m.useModule(VillageCitizenNFTModule));
     if (modules.tokenizedStays && !modules.tdfTransferPolicy) {
       Object.assign(results, m.useModule(TokenizedStaysModule));
     }

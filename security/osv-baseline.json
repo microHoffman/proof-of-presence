@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "reviewedOn": "2026-07-21",
+  "reviewedOn": "2026-07-22",
   "note": "Existing dependency findings only. Reports remain visible; new package/version/advisory tuples fail CI.",
   "findings": [
     {
@@ -44,18 +44,6 @@
       "package": "esbuild",
       "version": "0.27.3",
       "id": "GHSA-g7r4-m6w7-qqqr"
-    },
-    {
-      "ecosystem": "npm",
-      "package": "fast-uri",
-      "version": "3.1.0",
-      "id": "GHSA-q3j6-qgpj-74h6"
-    },
-    {
-      "ecosystem": "npm",
-      "package": "fast-uri",
-      "version": "3.1.0",
-      "id": "GHSA-v39h-62p7-jpjc"
     },
     {
       "ecosystem": "npm",

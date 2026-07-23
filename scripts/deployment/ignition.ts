@@ -6,6 +6,7 @@ import {TOKENIZED_STAYS_MODULE_ID} from '../../ignition/modules/contracts/Tokeni
 import {VILLAGE_ACCESS_MODULE_ID} from '../../ignition/modules/contracts/VillageAccess.js';
 import {VILLAGE_PRESENCE_TOKEN_MODULE_ID} from '../../ignition/modules/contracts/VillagePresenceToken.js';
 import {VILLAGE_SWEAT_TOKEN_MODULE_ID} from '../../ignition/modules/contracts/VillageSweatToken.js';
+import {VILLAGE_CITIZEN_NFT_MODULE_ID} from '../../ignition/modules/contracts/VillageCitizenNFT.js';
 import {TDF_COMMUNITY_TOKEN_MODULE_ID} from '../../ignition/modules/profiles/TdfCommunityToken.js';
 import {TDF_TOKENIZED_STAYS_MODULE_ID} from '../../ignition/modules/profiles/TdfTokenizedStays.js';
 import {selectVillageProfileModule} from '../../ignition/modules/profiles/select.js';
@@ -16,16 +17,7 @@ import type {
   VillageDeploymentConfig,
   VillageDeploymentContext,
 } from './village.js';
-
-export const UUPS_CONTRACTS = [
-  'VillageAccess',
-  'CommunityToken',
-  'VillagePresenceToken',
-  'VillageSweatToken',
-  'TokenizedStays',
-] as const;
-
-type UupsContractName = (typeof UUPS_CONTRACTS)[number];
+import type {UupsContractName} from './uups-contracts.js';
 
 export interface IgnitionVillageDeployment {
   module: IgnitionModule;
@@ -49,6 +41,7 @@ export async function validateSelectedImplementations(
   if (modules.presenceToken) selected.push('VillagePresenceToken');
   if (modules.sweatToken) selected.push('VillageSweatToken');
   if (modules.tokenizedStays) selected.push('TokenizedStays');
+  if (modules.citizenNft) selected.push('VillageCitizenNFT');
 
   if (!context.upgrades?.validateImplementation) {
     throw new Error('OpenZeppelin upgrades validation is required before every Ignition UUPS deployment');
@@ -111,6 +104,14 @@ export function buildVillageIgnitionParameters(
       name: config.sweatToken?.name ?? titleFromSlug(config.villageSlug, 'Contribution'),
       symbol: config.sweatToken?.symbol ?? `${symbolFromSlug(config.villageSlug)}C`,
       decayRatePerDay: String(config.sweatToken?.decayRatePerDay),
+      owner: initialOwner,
+    };
+  }
+  if (modules.citizenNft) {
+    parameters[VILLAGE_CITIZEN_NFT_MODULE_ID] = {
+      name: config.citizenNft?.name ?? titleFromSlug(config.villageSlug, 'Citizen'),
+      symbol: config.citizenNft?.symbol ?? `${config.villageSlug} CIT`,
+      baseURI: config.citizenNft!.baseURI,
       owner: initialOwner,
     };
   }
@@ -239,6 +240,15 @@ export async function deployVillageIgnitionGraph(
   if (modules.tokenizedStays) {
     await addUups('TokenizedStays', 'tokenizedStays', [contracts.CommunityToken.address, accessAddress, initialOwner]);
   }
+  if (modules.citizenNft) {
+    await addUups('VillageCitizenNFT', 'citizenNft', [
+      config.citizenNft?.name ?? titleFromSlug(config.villageSlug, 'Citizen'),
+      config.citizenNft?.symbol ?? `${config.villageSlug} CIT`,
+      config.citizenNft!.baseURI,
+      accessAddress,
+      initialOwner,
+    ]);
+  }
 
   return {
     module,
@@ -257,7 +267,8 @@ export function isPolicyOnlyDeployment(modules: NormalizedModules): boolean {
     !modules.communityToken &&
     !modules.presenceToken &&
     !modules.sweatToken &&
-    !modules.tokenizedStays
+    !modules.tokenizedStays &&
+    !modules.citizenNft
   );
 }
 

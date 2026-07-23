@@ -11,7 +11,11 @@ const SOLC_BUILD_PATTERN = /Version: 0\.8\.35\+commit\.47b9dedd/;
 const EVM_VERSION = 'cancun';
 const ADERYN_PACKAGE = '@cyfrin/aderyn@0.6.8';
 const PATH_EXCLUDES = 'src/village/test,security/smt,test';
-const REQUIRED_SOURCES = ['src/village/stays/TokenizedStays.sol', 'src/profiles/tdf/TDFTransferPolicy.sol'];
+const REQUIRED_SOURCES = [
+  'src/village/citizenship/VillageCitizenNFT.sol',
+  'src/village/stays/TokenizedStays.sol',
+  'src/profiles/tdf/TDFTransferPolicy.sol',
+];
 
 const reportDirectory = ensureReportDirectory('aderyn');
 const reportPath = path.join(reportDirectory, 'report.md');

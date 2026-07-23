@@ -8,6 +8,7 @@ const upgradePairs = [
   ['VillagePresenceToken', 'PresenceTokenUpgradeMock'],
   ['VillageSweatToken', 'SweatTokenUpgradeMock'],
   ['TokenizedStays', 'TokenizedStaysUpgradeMock'],
+  ['VillageCitizenNFT', 'VillageCitizenNFTUpgradeMock'],
 ] as const;
 
 async function main(): Promise<void> {
