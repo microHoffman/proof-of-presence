@@ -31,8 +31,20 @@ Consumers must:
 
 ## Contract clients
 
-Use separate clients for `VillageAccess`, `CommunityToken`, `DynamicPriceSale`, `TokenizedStays`,
-`VillagePresenceToken`, `VillageSweatToken`, `TDFTransferPolicy`, and, for TDF, `TDFV1BondingCurve`.
+Use separate clients for `VillageAccess`, `VillageCitizenNFT`, `CommunityToken`, `DynamicPriceSale`,
+`TokenizedStays`, `VillagePresenceToken`, `VillageSweatToken`, `TDFTransferPolicy`, and, for TDF,
+`TDFV1BondingCurve`.
+
+VillageCitizenNFT holder discovery is a fixed-block snapshot: read `totalSupply()`, enumerate `tokenByIndex(i)`, and
+resolve each `ownerOf(tokenId)`, preferably through multicall. Enumeration order changes after burns, so an index must
+never be persisted as token identity. `tokenIdOf(wallet)` returns zero and `citizenshipInfo(wallet)` returns an all-zero
+struct when the wallet has no live credential. `locked(tokenId)` is true only for a live token and reverts after burn.
+Do not expose transfer or approval controls.
+
+Treat `subjectRef` as an opaque correlation handle generated from a cryptographically secure random source. Never put
+personal data, user identifiers, hashes of identifiers, or ciphertext into it. References are not secrets, appear in
+events, and can never be reused. Suspension and revocation both remove the live credential; reapproval requires a new
+issuance with a fresh token ID and reference. Lost-wallet recovery is one atomic operator transaction.
 
 The sale intentionally exposes two compact aggregate reads instead of one getter per stored field:
 
@@ -72,6 +84,9 @@ should avoid frequent polling and prefer indexed/reconciled views.
 Index events using `(chainId, contract, transactionHash, logIndex)`, with chain finality and reorg rollback. Relevant
 TokenizedStays events include booking creation/cancellation/pruning, deposit/withdrawal, balance reconciliation, and
 orphan recovery.
+Citizenship history comes from `CitizenshipIssued`, `CitizenshipOperatorBurned`, `CitizenshipSelfBurned`, and
+`CitizenshipRecovered` together with ERC-721 `Transfer`. Index `Locked` for ERC-5192 consumers and refresh live token
+metadata after `BatchMetadataUpdate`; there is no `Unlocked` lifecycle.
 
 Keep immutable manifest history across upgrades. The proxy address stays stable; the implementation address and
 effective ABI revision are auditable through `upgradeHistory` and the chain's ERC-1967 slot. An API operator role
@@ -81,7 +96,7 @@ must never be treated as upgrade authority.
 
 An automated deployment worker should:
 
-1. generate and validate schema-4 config;
+1. generate and validate schema-5 config;
 2. use a clean immutable source revision;
 3. invoke the supported deployment wrapper with a dedicated deployer;
 4. persist the stable Ignition deployment ID and logs;

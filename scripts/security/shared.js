@@ -5,6 +5,7 @@ import process from 'node:process';
 
 export const ACTIVE_CONTRACTS = [
   ['src/village/access/VillageAccess.sol', 'VillageAccess'],
+  ['src/village/citizenship/VillageCitizenNFT.sol', 'VillageCitizenNFT'],
   ['src/village/tokens/CommunityToken.sol', 'CommunityToken'],
   ['src/village/tokens/VillagePresenceToken.sol', 'VillagePresenceToken'],
   ['src/village/tokens/VillageSweatToken.sol', 'VillageSweatToken'],

@@ -11,6 +11,7 @@ const WAKE_COMMIT = '6484ca1961fab54fd594aef9479880d0522bdbcd';
 const CONFIG_PATH = 'wake.toml';
 const TARGETS = ['src/village', 'src/profiles/tdf'];
 const REQUIRED_SOURCES = [
+  'src/village/citizenship/VillageCitizenNFT.sol',
   'src/village/stays/TokenizedStays.sol',
   'src/village/sales/DynamicPriceSale.sol',
   'src/profiles/tdf/TDFTransferPolicy.sol',

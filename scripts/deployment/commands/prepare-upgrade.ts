@@ -3,6 +3,7 @@ import {getAddress, keccak256, toUtf8Bytes, ZeroAddress} from 'ethers';
 import {buildUpgradeImplementationModule} from '../../../ignition/modules/upgrades/UpgradeImplementation.js';
 import {prepareSafeOwnerActions} from '../safe-service.js';
 import {reconcileExecutedUpgrade} from '../upgrades.js';
+import {isSupportedUupsContract, readUpgradeAuthority} from '../uups-contracts.js';
 import {
   readVillageDeploymentManifest,
   writeVillageDeploymentManifest,
@@ -12,15 +13,6 @@ import {
   type VillageDeploymentManifest,
 } from '../village.js';
 import {verifyIgnitionDeployment} from '../verification.js';
-
-const UUPS_CONTRACTS = new Set([
-  'VillageAccess',
-  'CommunityToken',
-  'VillagePresenceToken',
-  'VillageSweatToken',
-  'TokenizedStays',
-  'DynamicPriceSale',
-]);
 
 export interface PrepareUpgradeOptions {
   manifestPath: string;
@@ -43,7 +35,7 @@ export async function prepareUpgradeCommand(
   options: PrepareUpgradeOptions,
   context: PrepareUpgradeContext,
 ): Promise<VillageDeploymentManifest> {
-  if (!UUPS_CONTRACTS.has(options.contractName)) {
+  if (!isSupportedUupsContract(options.contractName)) {
     throw new Error(`'${options.contractName}' is not a supported UUPS contract`);
   }
   if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(options.version)) throw new Error('Invalid upgrade version');
@@ -147,7 +139,7 @@ export async function prepareUpgradeCommand(
     data,
     reason: `Upgrade ${options.contractName} to release ${options.version}`,
   };
-  const authority = await readAuthority(options.contractName, record.address, context.ethers);
+  const authority = await readUpgradeAuthority(options.contractName, record.address, context.ethers);
   if (authority.pending !== ZeroAddress) {
     console.warn(
       `Warning: ownership transfer to ${authority.pending} is pending; current authority is ${authority.current}`,
@@ -181,29 +173,6 @@ export async function prepareUpgradeCommand(
   await writeVillageDeploymentManifest(manifestPath, manifest);
   console.log(`${options.contractName} upgrade prepared: ${newImplementation}`);
   return manifest;
-}
-
-async function readAuthority(
-  contractName: string,
-  address: string,
-  ethers: any,
-): Promise<{current: string; pending: string}> {
-  if (contractName === 'VillageAccess') {
-    const access = await ethers.getContractAt(
-      [
-        'function defaultAdmin() view returns (address)',
-        'function pendingDefaultAdmin() view returns (address,uint48)',
-      ],
-      address,
-    );
-    const [pending] = await access.pendingDefaultAdmin();
-    return {current: getAddress(await access.defaultAdmin()), pending: getAddress(pending)};
-  }
-  const ownable = await ethers.getContractAt(
-    ['function owner() view returns (address)', 'function pendingOwner() view returns (address)'],
-    address,
-  );
-  return {current: getAddress(await ownable.owner()), pending: getAddress(await ownable.pendingOwner())};
 }
 
 async function classifyAuthority(address: string, ethers: any): Promise<FinalOwnerConfig> {

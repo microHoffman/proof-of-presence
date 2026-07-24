@@ -7,6 +7,7 @@ import DynamicPriceSaleModule from '../contracts/DynamicPriceSale.js';
 import VillagePresenceTokenModule from '../contracts/VillagePresenceToken.js';
 import VillageSweatTokenModule from '../contracts/VillageSweatToken.js';
 import TokenizedStaysModule from '../contracts/TokenizedStays.js';
+import VillageCitizenNFTModule from '../contracts/VillageCitizenNFT.js';
 import TDFTransferPolicyModule from '../contracts/TDFTransferPolicy.js';
 import MinimalVillageModule from './MinimalVillage.js';
 import TokenVillageModule from './TokenVillage.js';
@@ -19,7 +20,7 @@ import TdfVillageDynamicPriceSaleModule from './TdfVillageDynamicPriceSale.js';
 
 function legacyDeploymentBits(modules: NormalizedModules): string {
   // Keep this field order stable: the bit string is part of a custom graph's persistent Ignition Module ID.
-  return [
+  const legacyBits = [
     modules.communityToken,
     modules.presenceToken,
     modules.sweatToken,
@@ -28,6 +29,8 @@ function legacyDeploymentBits(modules: NormalizedModules): string {
   ]
     .map((enabled) => (enabled ? '1' : '0'))
     .join('');
+  // Preserve every pre-CitizenNFT custom Module ID when CitizenNFT is disabled.
+  return modules.citizenNft ? `${legacyBits}1` : legacyBits;
 }
 
 /**
@@ -39,11 +42,11 @@ export function selectVillageProfileModule(modules: NormalizedModules, tdfProfil
   if (!modules.dynamicPriceSale) {
     if (legacyBits === '00001') return TDFTransferPolicyModule;
     if (legacyBits === '00000') return MinimalVillageModule;
-    if (legacyBits === '10000') return TokenVillageModule;
-    if (legacyBits === '10010') return TokenizedStaysVillageModule;
-    if (legacyBits === '11111') return TdfVillageModule;
+    if (legacyBits === '100001') return TokenVillageModule;
+    if (legacyBits === '100101') return TokenizedStaysVillageModule;
+    if (legacyBits === '111111') return TdfVillageModule;
   }
-  if (legacyBits === '11111' && modules.dynamicPriceSale && tdfProfile) return TdfVillageDynamicPriceSaleModule;
+  if (legacyBits === '111111' && modules.dynamicPriceSale && tdfProfile) return TdfVillageDynamicPriceSaleModule;
 
   const bits = modules.dynamicPriceSale ? `${legacyBits}1` : legacyBits;
   return buildModule(`CustomVillageModule_${bits}`, (m) => {
@@ -56,6 +59,7 @@ export function selectVillageProfileModule(modules: NormalizedModules, tdfProfil
     }
     if (modules.presenceToken) Object.assign(results, m.useModule(VillagePresenceTokenModule));
     if (modules.sweatToken) Object.assign(results, m.useModule(VillageSweatTokenModule));
+    if (modules.citizenNft) Object.assign(results, m.useModule(VillageCitizenNFTModule));
     if (modules.tokenizedStays && !modules.tdfTransferPolicy) {
       Object.assign(results, m.useModule(TokenizedStaysModule));
     }

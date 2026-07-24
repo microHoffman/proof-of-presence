@@ -13,6 +13,7 @@ const moduleName = z.enum([
   'sweatToken',
   'tokenizedStays',
   'tdfTransferPolicy',
+  'citizenNft',
   'dynamicPriceSale',
 ]);
 
@@ -35,7 +36,7 @@ const finalOwner = z.discriminatedUnion('type', [eoaOwner, safeOwner]);
  * Unknown fields are rejected so removed options cannot silently look effective in a production config.
  */
 export const VillageDeploymentConfigSchema = z.strictObject({
-  schemaVersion: z.literal(4),
+  schemaVersion: z.literal(5),
   villageSlug: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
   chainId: z.number().int().positive(),
   deploymentProfile: z.enum(['minimal-village', 'token-village', 'tokenized-stays-village', 'tdf']),
@@ -55,6 +56,14 @@ export const VillageDeploymentConfigSchema = z.strictObject({
       transferPolicy: nonZeroAddress.optional(),
       apiOperatorCanMint: z.boolean().optional(),
       minters: z.array(nonZeroAddress).optional(),
+    })
+    .optional(),
+  citizenNft: z
+    .strictObject({
+      name: z.string().min(1).optional(),
+      symbol: z.string().min(1).optional(),
+      baseURI: z.string().min(1),
+      operators: z.array(nonZeroAddress).optional(),
     })
     .optional(),
   presenceToken: z

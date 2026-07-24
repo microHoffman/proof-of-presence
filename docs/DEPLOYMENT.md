@@ -9,7 +9,7 @@ Example TDF config:
 
 ```json
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "villageSlug": "example-village",
   "chainId": 11142220,
   "deploymentProfile": "tdf",
@@ -31,6 +31,14 @@ Example TDF config:
     "maxSupply": "18600000000000000000000",
     "initialRecipient": "0x5555555555555555555555555555555555555555",
     "apiOperatorCanMint": true
+  },
+  "citizenNft": {
+    "name": "Example Village Citizen",
+    "symbol": "EXAMPLE CIT",
+    "baseURI": "https://example.invalid/citizens/",
+    "operators": [
+      "0x5555555555555555555555555555555555555555"
+    ]
   },
   "presenceToken": {
     "name": "Example Presence",
@@ -62,7 +70,14 @@ Example TDF config:
 ```
 
 Use decimal strings for integers that may exceed JavaScript's safe integer range. The selected RPC chain ID must
-match `chainId`. A TDF profile requires both treasury recipients and a standard 18-decimal quote token, enables every
+match `chainId`. `token-village`,
+`tokenized-stays-village`, and `tdf` automatically include `VillageCitizenNFT`; `minimal-village` remains unchanged.
+Every deployment that selects CitizenNFT requires a nonempty `citizenNft.baseURI`. Its default name is the title-cased
+deployment slug plus `Citizen`, its default symbol is the deployment slug plus `CIT`, and its operators default to an
+empty list. Citizen operators are taken only from `citizenNft.operators` or explicit `initialRoleGrants`; they are
+never inferred from `apiOperator`.
+
+A TDF profile requires both treasury recipients and a standard 18-decimal quote token, enables every
 module, and deploys `TDFV1BondingCurve` automatically; omit `bondingCurve` in a TDF config. The historical curve
 retains its nominal 4,109 TDF mathematical boundary, but TDF deployment requires at least 5,381 TDF. That operating
 floor is the lowest historical V1 quote-vector supply and keeps every configured whole-token purchase from 1 through
@@ -93,6 +108,7 @@ Deploy one allowlisted contract and its required dependencies:
 
 ```sh
 yarn deploy:contract -- --contract TDFTransferPolicy --config config.json --network celoSepolia
+yarn deploy:contract -- --contract VillageCitizenNFT --config config.json --network celoSepolia
 ```
 
 Canonical manifest paths are:
@@ -149,13 +165,14 @@ whose fields or meanings have changed.
 
 This repository uses:
 
-- config schema `4`;
-- manifest schema `4`, which records `configSchemaVersion: 4`;
+- config schema `5`;
+- manifest schema `5`, which records `configSchemaVersion: 5`;
 - consumer export schema `3`.
 
-Config parsing requires the literal `4`; there is no default. The version is part of the canonical config hash.
-Manifest parsing also requires the exact current literals. Schema 4 adds CommunityToken maximum supply and
-DynamicPriceSale configuration; older shapes are intentionally rejected instead of accepted through aliases.
+Config parsing requires the literal `5`; there is no default. The version is part of the canonical config hash.
+Manifest parsing also requires the exact current literals. Schema 4 added CommunityToken maximum supply and
+DynamicPriceSale configuration; schema 5 adds CitizenNFT configuration and normalized module state. Older shapes are
+intentionally rejected instead of accepted through aliases.
 
 Schema versions are independent of Solidity versions, proxy implementation revisions, `reinitializer(n)`, and
 Ignition's internal journal format. Increase a schema version when a breaking JSON field, type, invariant, or meaning

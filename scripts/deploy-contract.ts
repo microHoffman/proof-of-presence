@@ -13,6 +13,7 @@ const CONTRACT_MODULES = {
   VillagePresenceToken: ['presenceToken'],
   VillageSweatToken: ['sweatToken'],
   TokenizedStays: ['communityToken', 'tokenizedStays'],
+  VillageCitizenNFT: ['citizenNft'],
   TDFTransferPolicy: ['tdfTransferPolicy'],
   DynamicPriceSale: ['communityToken', 'dynamicPriceSale'],
 } as const satisfies Record<string, readonly string[]>;

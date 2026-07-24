@@ -18,4 +18,7 @@ library VillageRoles {
 
     /// @notice Authorizes booking-platform operators to mint and burn point tokens.
     bytes32 internal constant BOOKING_PLATFORM_ROLE = keccak256("BOOKING_PLATFORM_ROLE");
+
+    /// @notice Authorizes citizenship issuance, operator burns, and lost-wallet recovery.
+    bytes32 public constant CITIZEN_OPERATOR_ROLE = keccak256("CITIZEN_OPERATOR_ROLE");
 }

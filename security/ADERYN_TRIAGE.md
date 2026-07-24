@@ -5,7 +5,7 @@ The generated report remains available under the ignored `security-reports/adery
 
 ## Line-scoped dispositions
 
-- `contract-locks-ether` is marked `aderyn-fp` on the six concrete proxy/implementation declarations. Aderyn follows
+- `contract-locks-ether` is marked `aderyn-fp` on the seven concrete proxy/implementation declarations. Aderyn follows
   OpenZeppelin's payable `ERC1967Proxy` constructor, proxy fallback, and UUPS `upgradeToAndCall` surface. Empty upgrade
   calldata rejects nonzero value through `ERC1967NonPayable`, and every initializer/reinitializer and implementation
   entry point in this project is nonpayable. Normal calls therefore cannot leave Ether trapped. Future payable entry

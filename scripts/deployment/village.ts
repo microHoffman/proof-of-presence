@@ -29,7 +29,7 @@ export interface OwnershipConfig {
 }
 
 export interface VillageDeploymentConfig {
-  schemaVersion: 4;
+  schemaVersion: 5;
   villageSlug: string;
   chainId: number;
   deploymentProfile: DeploymentProfile;
@@ -37,11 +37,19 @@ export interface VillageDeploymentConfig {
   modules: string[];
   apiOperator: string;
   communityToken?: CommunityTokenConfig;
+  citizenNft?: CitizenNftConfig;
   presenceToken?: DecayingTokenConfig;
   sweatToken?: DecayingTokenConfig;
   tdfTransferPolicy?: TdfTransferPolicyConfig;
   dynamicPriceSale?: DynamicPriceSaleConfig;
   initialRoleGrants?: RoleGrantConfig[];
+}
+
+export interface CitizenNftConfig {
+  name?: string;
+  symbol?: string;
+  baseURI: string;
+  operators?: string[];
 }
 
 export interface CommunityTokenConfig {
@@ -91,6 +99,7 @@ export interface NormalizedModules {
   sweatToken: boolean;
   tokenizedStays: boolean;
   tdfTransferPolicy: boolean;
+  citizenNft: boolean;
   dynamicPriceSale: boolean;
 }
 
@@ -176,11 +185,11 @@ export interface ManifestUpgrade {
  * It summarizes configured and observed onchain state; Ignition's journal remains the source for transaction resumption.
  */
 export interface VillageDeploymentManifest {
-  schemaVersion: 4;
+  schemaVersion: 5;
   deploymentKind: 'village' | 'profile';
   villageSlug: string;
   chainId: number;
-  configSchemaVersion: 4;
+  configSchemaVersion: 5;
   configHash: string;
   sourceRevision?: string;
   network: string;
@@ -251,6 +260,7 @@ const manifestModules = z.strictObject({
   sweatToken: z.boolean(),
   tokenizedStays: z.boolean(),
   tdfTransferPolicy: z.boolean(),
+  citizenNft: z.boolean(),
   dynamicPriceSale: z.boolean(),
 });
 const manifestOwnerAction = z.strictObject({
@@ -348,11 +358,11 @@ const manifestUpgrade = z.strictObject({
 
 /** Strict schema for persisted deployment state; Ignition remains the transaction journal. */
 export const VillageDeploymentManifestSchema = z.strictObject({
-  schemaVersion: z.literal(4),
+  schemaVersion: z.literal(5),
   deploymentKind: z.enum(['village', 'profile']),
   villageSlug: z.string().min(1),
   chainId: z.number().int().positive(),
-  configSchemaVersion: z.literal(4),
+  configSchemaVersion: z.literal(5),
   configHash: manifestHash,
   sourceRevision: z.string().min(1).optional(),
   network: z.string().min(1),
@@ -416,6 +426,7 @@ export const ROLE_IDS = {
   MINTER_ROLE: id('MINTER_ROLE'),
   BOOKING_MANAGER_ROLE: id('BOOKING_MANAGER_ROLE'),
   BOOKING_PLATFORM_ROLE: id('BOOKING_PLATFORM_ROLE'),
+  CITIZEN_OPERATOR_ROLE: id('CITIZEN_OPERATOR_ROLE'),
 } as const;
 
 const ROLE_NAMES_BY_ID = new Map(Object.entries(ROLE_IDS).map(([name, role]) => [role.toLowerCase(), name]));
@@ -438,6 +449,7 @@ const MODULE_NAMES = [
   'sweatToken',
   'tokenizedStays',
   'tdfTransferPolicy',
+  'citizenNft',
   'dynamicPriceSale',
 ] as const;
 /** Combines explicitly selected modules with the modules implied by a named deployment profile. */
@@ -448,6 +460,7 @@ export function normalizeModules(config: VillageDeploymentConfig): NormalizedMod
     sweatToken: false,
     tokenizedStays: false,
     tdfTransferPolicy: false,
+    citizenNft: false,
     dynamicPriceSale: false,
   };
   for (const moduleName of config.modules) {
@@ -456,10 +469,14 @@ export function normalizeModules(config: VillageDeploymentConfig): NormalizedMod
     }
     modules[moduleName as keyof NormalizedModules] = true;
   }
-  if (config.deploymentProfile === 'token-village') modules.communityToken = true;
+  if (config.deploymentProfile === 'token-village') {
+    modules.communityToken = true;
+    modules.citizenNft = true;
+  }
   if (config.deploymentProfile === 'tokenized-stays-village') {
     modules.communityToken = true;
     modules.tokenizedStays = true;
+    modules.citizenNft = true;
   }
   if (config.deploymentProfile === 'tdf') {
     for (const key of MODULE_NAMES) modules[key] = true;
@@ -511,6 +528,11 @@ export function deriveInitialRoleGrants(
   for (const minter of config.communityToken?.minters ?? []) {
     grants.push(makeRoleGrant('MINTER_ROLE', normalizeAddress(minter, 'communityToken.minters'), 'config'));
   }
+  if (modules.citizenNft) {
+    for (const operator of config.citizenNft?.operators ?? []) {
+      grants.push(makeRoleGrant('CITIZEN_OPERATOR_ROLE', normalizeAddress(operator, 'citizenNft.operators'), 'config'));
+    }
+  }
   for (const grant of config.initialRoleGrants ?? []) {
     grants.push(makeRoleGrant(grant.role, normalizeAddress(grant.account, 'initialRoleGrants.account'), 'config'));
   }
@@ -557,6 +579,9 @@ export function validateVillageDeploymentConfig(
     if (config.deploymentProfile === 'tdf' && maxSupply !== TDF_COMMUNITY_TOKEN_MAX_SUPPLY) {
       throw new Error(`tdf requires communityToken.maxSupply ${TDF_COMMUNITY_TOKEN_MAX_SUPPLY}`);
     }
+  }
+  if (modules.citizenNft && !config.citizenNft?.baseURI) {
+    throw new Error('citizenNft.baseURI is required when citizenNft is selected');
   }
   if (modules.presenceToken && config.presenceToken?.decayRatePerDay === undefined) {
     throw new Error('presenceToken.decayRatePerDay is required when presenceToken is selected');
@@ -715,11 +740,11 @@ export async function deployVillage(
   }
 
   const manifest: VillageDeploymentManifest = {
-    schemaVersion: 4,
+    schemaVersion: 5,
     deploymentKind: deploymentKind(config.deploymentProfile),
     villageSlug: config.villageSlug,
     chainId: config.chainId,
-    configSchemaVersion: 4,
+    configSchemaVersion: 5,
     configHash,
     sourceRevision: process.env.GITHUB_SHA ?? process.env.SOURCE_REVISION,
     network: context.networkName,
@@ -1174,6 +1199,18 @@ async function verifyModuleWiring(
       contracts[name].address,
     );
     if (getAddress(await token.roleAuthority()) !== accessAddress) throw new Error(`${name} authority mismatch`);
+  }
+  if (contracts.VillageCitizenNFT) {
+    const citizenNft = await context.ethers.getContractAt(
+      ['function roleAuthority() view returns (address)', 'function baseURI() view returns (string)'],
+      contracts.VillageCitizenNFT.address,
+    );
+    if (getAddress(await citizenNft.roleAuthority()) !== accessAddress) {
+      throw new Error('VillageCitizenNFT authority mismatch');
+    }
+    if ((await citizenNft.baseURI()) !== config.citizenNft!.baseURI) {
+      throw new Error('VillageCitizenNFT base URI mismatch');
+    }
   }
   if (contracts.TokenizedStays) {
     const stays = await context.ethers.getContractAt(

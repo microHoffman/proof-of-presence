@@ -8,6 +8,9 @@
   "engines": {
     "node": ">=22.19.0"
   },
+  "resolutions": {
+    "fast-uri": "3.1.4"
+  },
   "repository": "github:closerdao/proof-of-presence",
   "author": "Closer Dao",
   "license": "MIT",

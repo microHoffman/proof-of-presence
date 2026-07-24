@@ -61,6 +61,21 @@
     "mutations": ["assignment-mutation", "if-statement-mutation"]
   },
   {
+    "filename": "../src/village/citizenship/VillageCitizenNFT.sol",
+    "sourceroot": "..",
+    "contract": "VillageCitizenNFT",
+    "solc": "./scripts/security/gambit-solc.js",
+    "solc_evm_version": "cancun",
+    "solc_base_path": "..",
+    "solc_include_path": "../node_modules",
+    "solc_remappings": ["@openzeppelin=../node_modules/@openzeppelin"],
+    "solc_optimize": true,
+    "outdir": "../security-reports/gambit",
+    "num_mutants": 2,
+    "seed": 20260722,
+    "mutations": ["assignment-mutation", "if-statement-mutation"]
+  },
+  {
     "filename": "../src/village/access/VillageAccess.sol",
     "sourceroot": "..",
     "contract": "VillageAccess",

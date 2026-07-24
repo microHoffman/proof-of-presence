@@ -3,6 +3,7 @@ import {getAddress} from 'ethers';
 import {submitDeploymentOwnerActions} from '../owner-actions.js';
 import {proposeSafeOwnerActions, type SafeProposalOptions} from '../safe-service.js';
 import {reconcileExecutedUpgrade} from '../upgrades.js';
+import {readUpgradeAuthority} from '../uups-contracts.js';
 import {
   readVillageDeploymentManifest,
   writeVillageDeploymentManifest,
@@ -73,7 +74,7 @@ async function submitEoaUpgrade(
   ethers: any,
 ): Promise<void> {
   const record = manifest.contracts[upgrade.contractName];
-  const authority = await currentAuthority(upgrade.contractName, record.address, ethers);
+  const authority = (await readUpgradeAuthority(upgrade.contractName, record.address, ethers)).current;
   const signers = await ethers.getSigners();
   const signer = signers.find((candidate: {address: string}) => getAddress(candidate.address) === authority);
   if (!signer) throw new Error(`Current upgrade authority ${authority} is not an available Hardhat signer`);
@@ -88,16 +89,6 @@ async function submitEoaUpgrade(
         reconciliation.liveImplementation,
     );
   }
-}
-
-async function currentAuthority(contractName: string, address: string, ethers: any): Promise<string> {
-  const contract = await ethers.getContractAt(
-    contractName === 'VillageAccess'
-      ? ['function defaultAdmin() view returns (address)']
-      : ['function owner() view returns (address)'],
-    address,
-  );
-  return getAddress(contractName === 'VillageAccess' ? await contract.defaultAdmin() : await contract.owner());
 }
 
 function selectUpgrade(manifest: VillageDeploymentManifest, selector: string): ManifestUpgrade {

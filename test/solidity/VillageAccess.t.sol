@@ -28,6 +28,7 @@ contract VillageAccessTest is TestBase {
         assertFalse(access.hasRole(bytes32(0), address(this)));
         assertTrue(access.hasRole(VillageRoles.MINTER_ROLE, minter));
         assertTrue(access.hasRole(VillageRoles.BOOKING_MANAGER_ROLE, manager));
+        assertEq(access.CITIZEN_OPERATOR_ROLE(), keccak256("CITIZEN_OPERATOR_ROLE"));
     }
 
     function test_RejectsDefaultAdminInTheInitialGrantList() public {

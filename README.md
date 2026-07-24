@@ -6,7 +6,7 @@ security tooling. The former contract system is preserved separately on the `leg
 
 ## Quick start
 
-The pinned toolchain is Node.js 22, Yarn Classic, Solidity 0.8.35, and the security tools declared in
+The pinned toolchain is Rust 1.97.1, Node.js 22, Yarn Classic, Solidity 0.8.35, and the security tools declared in
 `mise.toml`.
 
 ```sh
@@ -54,8 +54,8 @@ Hardhat Ignition owns transaction journaling and resumption. A strict deployment
 on-chain state for operators and downstream systems; it does not duplicate the Ignition journal. Consumer exports are
 derived from manifests and contain only stable addresses, ABIs, aliases, and routing metadata.
 
-- Deployment config: `schemaVersion: 4`.
-- Deployment manifest: `schemaVersion: 4`, with `configSchemaVersion: 4`.
+- Deployment config: `schemaVersion: 5`.
+- Deployment manifest: `schemaVersion: 5`, with `configSchemaVersion: 5`.
 - Consumer export: `schemaVersion: 3`.
 
 `schemaVersion` identifies the JSON wire format. It is not a contract version, proxy storage version, or Ignition

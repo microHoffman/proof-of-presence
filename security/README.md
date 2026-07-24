@@ -43,7 +43,8 @@ Wake is another manual second opinion. `mise.toml` and the runner pin the same i
 `microHoffman/wake` commit with Solidity 0.8.35 support. Replace it with upstream only after upstream supports the
 same compiler and passes the integrity checks.
 
-`yarn analyze:standards` checks the CommunityToken ERC-20/ERC-2612 surface and ERC-165 contracts.
+`yarn analyze:standards` checks the CommunityToken ERC-20/ERC-2612 surface and ERC-165 contracts, including the
+VillageCitizenNFT ERC-721, Metadata, Enumerable, ERC-5192, and ERC-4906 identifiers.
 `mise run security:smt` proves focused Gregorian-date and TokenizedStays exposure properties with the pinned Solidity
 SMTChecker and Z3, including a negative control that must yield a counterexample.
 

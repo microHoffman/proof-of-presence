@@ -5,10 +5,11 @@ import {expect} from 'chai';
 import hre from 'hardhat';
 import {upgrades as createUpgradesApi} from '@openzeppelin/hardhat-upgrades';
 import {OperationType} from '@safe-global/types-kit';
-import {MaxUint256, parseEther, ZeroAddress} from 'ethers';
+import {id, MaxUint256, parseEther, ZeroAddress} from 'ethers';
 import {connection, ethers} from '../hardhat.js';
 import {runChildProcess, runTsxWorker} from '../helpers/child-process.js';
 import {exportVillageCommand} from '../../scripts/deployment/commands/export-village.js';
+import {parseVillageDeploymentConfig} from '../../scripts/deployment/config.js';
 import {submitDeploymentOwnerActions} from '../../scripts/deployment/owner-actions.js';
 import {
   deployVillage,
@@ -38,13 +39,14 @@ function baseConfig(
   overrides: Partial<VillageDeploymentConfig> = {},
 ): VillageDeploymentConfig {
   const config: VillageDeploymentConfig = {
-    schemaVersion: 4,
+    schemaVersion: 5,
     villageSlug: slug,
     chainId: 31337,
     deploymentProfile: 'minimal-village',
     ownership: {mode: 'direct', finalOwner: {type: 'eoa', address: owner}},
     modules: [],
     apiOperator,
+    citizenNft: {baseURI: 'https://citizen.example/'},
     communityToken: {maxSupply: MaxUint256.toString()},
     ...overrides,
   };
@@ -68,8 +70,8 @@ describe('Village deployment entrypoint', function () {
     const access = await ethers.getContractAt('VillageAccess', result.manifest.contracts.VillageAccess.address);
 
     expect(result.manifest.status).to.equal('complete');
-    expect(result.manifest.schemaVersion).to.equal(4);
-    expect(result.manifest.configSchemaVersion).to.equal(4);
+    expect(result.manifest.schemaVersion).to.equal(5);
+    expect(result.manifest.configSchemaVersion).to.equal(5);
     expect(result.manifest.deploymentKind).to.equal('village');
     expect(result.manifest.ownership).to.include({mode: 'direct', initialOwner: owner.address});
     expect(await access.defaultAdmin()).to.equal(owner.address);
@@ -88,6 +90,44 @@ describe('Village deployment entrypoint', function () {
     expect(() => parseVillageDeploymentManifest({...withoutDeploymentKind, generation: 'village'})).to.throw();
   });
 
+  it('deploys CitizenNFT in token profiles with explicit operators, defaults, and dynamic exports', async function () {
+    const [, owner, apiOperator, citizenOperator, citizen] = await ethers.getSigners();
+    const root = await outputRoot();
+    const config = baseConfig('citizen-profile', owner.address, apiOperator.address, {
+      chainId: await chainId(),
+      deploymentProfile: 'token-village',
+      citizenNft: {
+        baseURI: 'https://citizen.example/metadata/',
+        operators: [citizenOperator.address, citizenOperator.address],
+      },
+    });
+    const result = await deployVillage(config, deploymentContext(root));
+    const access = await ethers.getContractAt('VillageAccess', result.manifest.contracts.VillageAccess.address);
+    const citizenNft = await ethers.getContractAt(
+      'VillageCitizenNFT',
+      result.manifest.contracts.VillageCitizenNFT.address,
+    );
+
+    expect(result.manifest.modules.citizenNft).to.equal(true);
+    expect(await citizenNft.name()).to.equal('Citizen Profile Citizen');
+    expect(await citizenNft.symbol()).to.equal('citizen-profile CIT');
+    expect(await citizenNft.baseURI()).to.equal('https://citizen.example/metadata/');
+    expect(await citizenNft.owner()).to.equal(owner.address);
+    expect(await citizenNft.roleAuthority()).to.equal(await access.getAddress());
+    expect(await access.hasRole(ROLE_IDS.CITIZEN_OPERATOR_ROLE, citizenOperator.address)).to.equal(true);
+    expect(await access.hasRole(ROLE_IDS.CITIZEN_OPERATOR_ROLE, apiOperator.address)).to.equal(false);
+    expect(await access.hasRole(ROLE_IDS.CITIZEN_OPERATOR_ROLE, owner.address)).to.equal(false);
+    await citizenNft.connect(citizenOperator).issue(citizen.address, id('fresh-opaque-reference'));
+    expect(await citizenNft.tokenIdOf(citizen.address)).to.equal(1);
+
+    const exportPath = path.join(root, 'citizen-export.json');
+    await exportVillageCommand({manifestPath: result.manifestPath, outPath: exportPath});
+    const exported = JSON.parse(await readFile(exportPath, 'utf8'));
+    expect(exported.schemaVersion).to.equal(3);
+    expect(exported.contracts.VillageCitizenNFT.address).to.equal(await citizenNft.getAddress());
+    expect(exported.contracts.VillageCitizenNFT.abi).to.be.an('array').and.not.empty;
+  });
+
   it('rejects a conflicting manifest for an existing village deployment', async function () {
     const [deployer, owner, apiOperator] = await ethers.getSigners();
     const config = baseConfig('manifest-collision-test', owner.address, apiOperator.address, {
@@ -95,6 +135,7 @@ describe('Village deployment entrypoint', function () {
     });
     const context = deploymentContext(await outputRoot());
     await deployVillage(config, context);
+    await deployVillage(parseVillageDeploymentConfig(config), context);
 
     let collision: Error | undefined;
     try {
@@ -170,6 +211,42 @@ describe('Village deployment entrypoint', function () {
     expect(manifest.status).to.equal('complete');
     expect(manifest.ownerActions).to.be.empty;
     expect(manifest.contracts.TDFTransferPolicy.constructorArgs).to.deep.equal([treasury.address, owner.address]);
+  });
+
+  it('permits standalone CitizenNFT deployment with only its required VillageAccess dependency', async function () {
+    const [, owner, apiOperator, citizenOperator] = await ethers.getSigners();
+    const root = await outputRoot();
+    const config = baseConfig('standalone-citizen-test', owner.address, apiOperator.address, {
+      chainId: await chainId(),
+      citizenNft: {baseURI: 'ipfs://standalone-citizens/', operators: [citizenOperator.address]},
+    });
+    const configPath = path.join(root, 'config.json');
+    await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`);
+    await runTsxWorker(
+      'scripts/deploy-contract.ts',
+      ['--contract', 'VillageCitizenNFT', '--config', configPath, '--network', 'default', '--output-root', root],
+      {cwd: process.cwd()},
+    );
+    const manifestPath = path.join(
+      root,
+      'deployments',
+      'contracts',
+      String(config.chainId),
+      config.villageSlug,
+      'village-citizen-nft.json',
+    );
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+    expect(Object.keys(manifest.contracts).sort()).to.deep.equal(['VillageAccess', 'VillageCitizenNFT']);
+    expect(manifest.modules).to.deep.equal({
+      communityToken: false,
+      presenceToken: false,
+      sweatToken: false,
+      tokenizedStays: false,
+      tdfTransferPolicy: false,
+      citizenNft: true,
+      dynamicPriceSale: false,
+    });
+    expect(manifest.contracts.VillageCitizenNFT.initializerArgs[2]).to.equal('ipfs://standalone-citizens/');
   });
 
   it('runs OpenZeppelin preflight before calling Ignition', async function () {
@@ -509,7 +586,8 @@ describe('Village deployment entrypoint', function () {
 
     expect(result.manifest.status).to.equal('complete');
     expect(result.manifest.ownerActions).to.be.empty;
-    expect(result.manifest.manualActions).to.have.length(7);
+    expect(result.manifest.manualActions).to.have.length(8);
+    expect(result.manifest.manualActions.map(({contractName}) => contractName)).to.include('VillageCitizenNFT');
     expect(result.manifest.manualActions.map(({functionName}) => functionName)).to.include.members([
       'acceptOwnership',
       'acceptDefaultAdminTransfer',

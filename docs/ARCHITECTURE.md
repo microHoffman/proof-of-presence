@@ -18,6 +18,7 @@ The operational roles are:
 - `MINTER_ROLE` for CommunityToken mint/burn operations.
 - `BOOKING_MANAGER_ROLE` for managed TokenizedStays cancellation.
 - `BOOKING_PLATFORM_ROLE` for Presence/Sweat issuance.
+- `CITIZEN_OPERATOR_ROLE` for citizenship issuance, operator burn, and lost-wallet recovery.
 
 `CommunityToken` is an ERC-20/ERC-2612 token with pausing, role-based mint/burn, an owner-adjustable maximum supply,
 and a replaceable `ITransferPolicy`. A zero policy explicitly disables policy checks. Every mint path enforces
@@ -39,6 +40,12 @@ enforces a fixed 365-day lock window, Gregorian date validity, a bounded booking
 role-authorized managed cancellation. Off-chain booking workflow state such as confirmation or check-in does not live
 in this contract.
 
+`VillageCitizenNFT` is a UUPS-upgradeable ERC-721 citizenship credential with Metadata, Enumerable, ERC-5192, and
+ERC-4906 support. Credentials are permanently non-transferable and expose no approval path. Suspension and revocation
+burn the active token; lost-wallet recovery atomically burns and reissues to a different wallet. Token IDs and opaque
+subject references are permanently single-use, while a wallet may receive a fresh credential after burning. Current
+holder discovery uses ERC-721 Enumerable; events remain the historical record.
+
 `TDFTransferPolicy` is a replaceable, non-upgradeable policy. While restricted, ordinary transfers must involve the
 treasury or an allowed counterparty. Minting remains allowed, while burns must leave at least 5,381 TDF in supply.
 That burn floor remains active even when ordinary transfer restrictions are disabled. The policy is deployed
@@ -53,7 +60,8 @@ unchanged V1 checked arithmetic. The initial V2 TDF token maximum is 18,600 TDF 
 
 ## Upgrade and storage model
 
-`VillageAccess`, `CommunityToken`, the decaying tokens, `TokenizedStays`, and `DynamicPriceSale` use UUPS proxies.
+`VillageAccess`, `CommunityToken`, `VillageCitizenNFT`, the decaying tokens, `TokenizedStays`, and `DynamicPriceSale`
+use UUPS proxies.
 Ignition deploys an implementation and `VillageUUPSProxy` with initializer calldata in the proxy constructor,
 eliminating an externally initializable proxy window.
 
@@ -65,7 +73,8 @@ Production implementations:
 - use OpenZeppelin's stateless UUPS and Initializable bases from Contracts 5.6;
 - are validated by the OpenZeppelin Hardhat Upgrades plugin before deployment and upgrade preparation.
 
-`TokenizedStays` uses `ReentrancyGuardTransient`, so Cancun support is part of the build boundary. Upgrade tests use
+`TokenizedStays` and `VillageCitizenNFT` use `ReentrancyGuardTransient`, so Cancun support is part of the build
+boundary. Upgrade tests use
 generation-neutral `*UpgradeMock` implementations. A test reinitializer may use numeric revision `2`; that number is
 an initializer revision and is unrelated to product or deployment schemas.
 
@@ -74,13 +83,14 @@ an initializer revision and is unrelated to product or deployment schemas.
 Contract Ignition modules are composed into stable profile modules. Supported profiles are:
 
 - `minimal-village`: VillageAccess only unless extra modules are selected.
-- `token-village`: VillageAccess and CommunityToken.
-- `tokenized-stays-village`: VillageAccess, CommunityToken, and TokenizedStays.
+- `token-village`: VillageAccess, CommunityToken, and VillageCitizenNFT.
+- `tokenized-stays-village`: VillageAccess, CommunityToken, VillageCitizenNFT, and TokenizedStays.
 - `tdf`: all village modules plus TDFTransferPolicy, DynamicPriceSale, and a new TDFV1BondingCurve.
 
-Other valid module combinations use a deterministic module ID derived from a stable module bit set. Existing graphs
-without a sale retain their previous IDs; sale-enabled graphs use new IDs. The same contract modules are reused by
-standalone contract deployment and profiles.
+Other valid module combinations use a deterministic module ID derived from a stable module bit set. The same contract
+modules are reused by standalone contract deployment and profiles.
+The custom-module identifier retains its pre-CitizenNFT bit string whenever CitizenNFT is disabled; enabled custom
+graphs add a CitizenNFT bit, and sale-enabled graphs add a further bit, without changing named-profile module IDs.
 
 Hardhat Ignition is the sole transaction journal and resumption engine. The deployment wrapper adds config
 validation, OpenZeppelin validation, ownership/Safe handling, on-chain reconciliation, verification, and atomic
@@ -97,7 +107,7 @@ Two ownership modes are supported:
 
 Safe-owned actions are prepared as one atomic transaction. Safe Transaction Service state is advisory; live contract
 postconditions determine completion. The API operator receives only configured operational roles and has no upgrade
-authority.
+authority. It is never implicitly made a Citizen operator.
 
 ## Build boundary
 
