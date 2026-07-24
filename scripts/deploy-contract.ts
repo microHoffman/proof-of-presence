@@ -15,6 +15,7 @@ const CONTRACT_MODULES = {
   TokenizedStays: ['communityToken', 'tokenizedStays'],
   VillageCitizenNFT: ['citizenNft'],
   TDFTransferPolicy: ['tdfTransferPolicy'],
+  DynamicPriceSale: ['communityToken', 'dynamicPriceSale'],
 } as const satisfies Record<string, readonly string[]>;
 
 type ContractModuleName = keyof typeof CONTRACT_MODULES;

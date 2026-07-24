@@ -2,7 +2,7 @@ import {mkdtemp, readFile, unlink, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {expect} from 'chai';
-import {HDNodeWallet, Mnemonic} from 'ethers';
+import {HDNodeWallet, MaxUint256, Mnemonic} from 'ethers';
 import hre from 'hardhat';
 import {runTsxWorker} from '../helpers/child-process.js';
 
@@ -31,7 +31,7 @@ describe('Ignition HTTP-network recovery', function () {
 
     try {
       const config = {
-        schemaVersion: 4,
+        schemaVersion: 5,
         villageSlug: 'ignition-resume-test',
         chainId: 31337,
         deploymentProfile: 'token-village',
@@ -39,6 +39,7 @@ describe('Ignition HTTP-network recovery', function () {
         modules: [],
         apiOperator: account(2),
         citizenNft: {baseURI: 'https://citizen.example/'},
+        communityToken: {maxSupply: MaxUint256.toString()},
       };
       const configPath = path.join(root, 'config.json');
       await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`);

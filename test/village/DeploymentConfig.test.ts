@@ -5,6 +5,8 @@ import {
   deriveInitialRoleGrants,
   normalizeModules,
   ROLE_IDS,
+  resolvedCloserFeeBps,
+  TDF_MINIMUM_OPERATING_SUPPLY,
   validateVillageDeploymentConfig,
   type NormalizedModules,
   type VillageDeploymentConfig,
@@ -15,7 +17,7 @@ describe('Village deployment config schema', function () {
   it('requires the current schema version, normalizes defaults, and rejects unknown fields', async function () {
     const [, owner, apiOperator] = await ethers.getSigners();
     const base = {
-      schemaVersion: 4,
+      schemaVersion: 5,
       villageSlug: 'schema-test',
       chainId: 31337,
       deploymentProfile: 'minimal-village',
@@ -25,20 +27,20 @@ describe('Village deployment config schema', function () {
     } as const;
 
     const parsed = parseVillageDeploymentConfig(base);
-    expect(parsed.schemaVersion).to.equal(4);
+    expect(parsed.schemaVersion).to.equal(5);
     expect(parsed.ownership.mode).to.equal('direct');
     expect(() => parseVillageDeploymentConfig({...base, owner: {type: 'eoa', address: owner.address}})).to.throw();
     expect(() => parseVillageDeploymentConfig({...base, roleAssignmentMode: 'initializer-seeded'})).to.throw();
     expect(() => parseVillageDeploymentConfig({...base, modules: ['membership']})).to.throw();
     const {schemaVersion: _schemaVersion, ...withoutSchemaVersion} = base;
     expect(() => parseVillageDeploymentConfig(withoutSchemaVersion)).to.throw();
-    expect(() => parseVillageDeploymentConfig({...base, schemaVersion: 2})).to.throw();
+    expect(() => parseVillageDeploymentConfig({...base, schemaVersion: 3})).to.throw();
   });
 
   it('accepts explicit handoff and rejects removed auto-Safe configuration', async function () {
     const [, owner, apiOperator] = await ethers.getSigners();
     const parsed = parseVillageDeploymentConfig({
-      schemaVersion: 4,
+      schemaVersion: 5,
       villageSlug: 'handoff-schema-test',
       chainId: 31337,
       deploymentProfile: 'minimal-village',
@@ -59,7 +61,7 @@ describe('Village deployment config schema', function () {
     const [, owner, apiOperator] = await ethers.getSigners();
     expect(() =>
       parseVillageDeploymentConfig({
-        schemaVersion: 4,
+        schemaVersion: 5,
         villageSlug: 'negative-value-test',
         chainId: 31337,
         deploymentProfile: 'token-village',
@@ -74,7 +76,7 @@ describe('Village deployment config schema', function () {
   it('rejects custom module compositions with missing dependencies', async function () {
     const [, owner, apiOperator] = await ethers.getSigners();
     const config: VillageDeploymentConfig = {
-      schemaVersion: 4,
+      schemaVersion: 5,
       villageSlug: 'invalid-tokenized',
       chainId: 31337,
       deploymentProfile: 'minimal-village',
@@ -91,14 +93,14 @@ describe('Village deployment config schema', function () {
   it('rejects conflicting external and deployed transfer policies', async function () {
     const [, owner, apiOperator, treasury] = await ethers.getSigners();
     const config: VillageDeploymentConfig = {
-      schemaVersion: 4,
+      schemaVersion: 5,
       villageSlug: 'conflicting-policies',
       chainId: 31337,
       deploymentProfile: 'tdf',
       ownership: {mode: 'direct', finalOwner: {type: 'eoa', address: owner.address}},
       modules: [],
       apiOperator: apiOperator.address,
-      communityToken: {transferPolicy: treasury.address},
+      communityToken: {maxSupply: '18600000000000000000000', transferPolicy: treasury.address},
       presenceToken: {decayRatePerDay: 288_617},
       sweatToken: {decayRatePerDay: 288_617},
       tdfTransferPolicy: {treasury: treasury.address},
@@ -107,6 +109,78 @@ describe('Village deployment config schema', function () {
     expect(() => validateVillageDeploymentConfig(config, config.chainId)).to.throw(
       'communityToken.transferPolicy cannot be set when the deployed TDFTransferPolicy is selected',
     );
+  });
+
+  it('defaults the TDF Closer fee to 5% but requires an explicit generic-sale fee', async function () {
+    const [, owner, apiOperator, quoteToken, curve, treasury, closerFeeRecipient] = await ethers.getSigners();
+    const sale = {
+      quoteToken: quoteToken.address,
+      bondingCurve: curve.address,
+      villageTreasury: treasury.address,
+      closerFeeRecipient: closerFeeRecipient.address,
+      saleCap: '900',
+      minimumPurchase: '1',
+      maximumPurchase: '100',
+      purchaseGranularity: '1',
+      maximumRecipientBalance: '200',
+    };
+    const generic = parseVillageDeploymentConfig({
+      schemaVersion: 5,
+      villageSlug: 'generic-fee-required',
+      chainId: 31337,
+      deploymentProfile: 'minimal-village',
+      ownership: {mode: 'direct', finalOwner: {type: 'eoa', address: owner.address}},
+      modules: ['communityToken', 'dynamicPriceSale'],
+      apiOperator: apiOperator.address,
+      communityToken: {maxSupply: '1000'},
+      dynamicPriceSale: sale,
+    });
+    expect(() => validateVillageDeploymentConfig(generic, 31337)).to.throw(
+      'dynamicPriceSale.closerFeeBps is required outside the TDF profile',
+    );
+
+    const tdf = {...generic, deploymentProfile: 'tdf' as const};
+    expect(resolvedCloserFeeBps(tdf)).to.equal(500);
+  });
+
+  it('requires the TDF operating supply needed by the complete purchase range', async function () {
+    const [, owner, apiOperator, initialRecipient, quoteToken, treasury, closerFeeRecipient] =
+      await ethers.getSigners();
+    const config = parseVillageDeploymentConfig({
+      schemaVersion: 5,
+      villageSlug: 'tdf-operating-supply',
+      chainId: 31337,
+      deploymentProfile: 'tdf',
+      ownership: {mode: 'direct', finalOwner: {type: 'eoa', address: owner.address}},
+      modules: [],
+      apiOperator: apiOperator.address,
+      communityToken: {
+        initialSupply: ethers.parseEther('5380').toString(),
+        maxSupply: ethers.parseEther('18600').toString(),
+        initialRecipient: initialRecipient.address,
+      },
+      citizenNft: {baseURI: 'https://citizen.example/'},
+      presenceToken: {decayRatePerDay: 288_617},
+      sweatToken: {decayRatePerDay: 288_617},
+      tdfTransferPolicy: {treasury: treasury.address},
+      dynamicPriceSale: {
+        quoteToken: quoteToken.address,
+        villageTreasury: treasury.address,
+        closerFeeRecipient: closerFeeRecipient.address,
+        saleCap: ethers.parseEther('15097.5').toString(),
+        minimumPurchase: ethers.parseEther('1').toString(),
+        maximumPurchase: ethers.parseEther('100').toString(),
+        purchaseGranularity: ethers.parseEther('1').toString(),
+        maximumRecipientBalance: ethers.parseEther('915').toString(),
+      },
+    });
+
+    expect(() => validateVillageDeploymentConfig(config, config.chainId)).to.throw(
+      `tdf initial supply must be at least ${TDF_MINIMUM_OPERATING_SUPPLY}`,
+    );
+
+    config.communityToken!.initialSupply = TDF_MINIMUM_OPERATING_SUPPLY.toString();
+    expect(() => validateVillageDeploymentConfig(config, config.chainId)).not.to.throw();
   });
 
   it('selects stable Ignition graphs for every supported profile and custom composition', async function () {
@@ -146,8 +220,9 @@ describe('Village deployment config schema', function () {
           tokenizedStays: true,
           tdfTransferPolicy: true,
           citizenNft: true,
+          dynamicPriceSale: true,
         }),
-        moduleId: 'TdfVillageModule',
+        moduleId: 'TdfVillageDynamicPriceSaleModule',
       },
       {
         profile: 'minimal-village',
@@ -182,11 +257,18 @@ describe('Village deployment config schema', function () {
         moduleId: 'CustomVillageModule_10011',
         nestedModuleId: 'TdfTokenizedStaysModule',
       },
+      {
+        profile: 'minimal-village',
+        modules: ['communityToken', 'dynamicPriceSale'],
+        expected: flags({communityToken: true, dynamicPriceSale: true}),
+        moduleId: 'CustomVillageModule_100001',
+        nestedModuleId: 'DynamicPriceSaleModule',
+      },
     ];
 
     for (const [index, testCase] of cases.entries()) {
       const config = parseVillageDeploymentConfig({
-        schemaVersion: 4,
+        schemaVersion: 5,
         villageSlug: `profile-selection-${index}`,
         chainId: 31337,
         deploymentProfile: testCase.profile,
@@ -199,7 +281,7 @@ describe('Village deployment config schema', function () {
         citizenNft: {baseURI: 'https://citizen.example/'},
       });
       const normalized = normalizeModules(config);
-      const selected = selectVillageProfileModule(normalized);
+      const selected = selectVillageProfileModule(normalized, testCase.profile === 'tdf');
       expect(normalized).to.deep.equal(testCase.expected);
       expect(selected.id).to.equal(testCase.moduleId);
       if (testCase.nestedModuleId) {
@@ -211,13 +293,14 @@ describe('Village deployment config schema', function () {
   it('requires a nonempty CitizenNFT base URI and grants only explicitly configured operators', async function () {
     const [, owner, apiOperator, citizenOperator] = await ethers.getSigners();
     const withoutCitizenConfig: VillageDeploymentConfig = {
-      schemaVersion: 4,
+      schemaVersion: 5,
       villageSlug: 'citizen-validation',
       chainId: 31337,
       deploymentProfile: 'token-village',
       ownership: {mode: 'direct', finalOwner: {type: 'eoa', address: owner.address}},
       modules: [],
       apiOperator: apiOperator.address,
+      communityToken: {maxSupply: '1'},
     };
     expect(() => validateVillageDeploymentConfig(withoutCitizenConfig, 31337)).to.throw(
       'citizenNft.baseURI is required',
@@ -259,6 +342,7 @@ function flags(overrides: Partial<NormalizedModules> = {}): NormalizedModules {
     tokenizedStays: false,
     tdfTransferPolicy: false,
     citizenNft: false,
+    dynamicPriceSale: false,
     ...overrides,
   };
 }

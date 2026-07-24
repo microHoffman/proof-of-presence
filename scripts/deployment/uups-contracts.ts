@@ -14,6 +14,7 @@ export const UUPS_CONTRACTS = {
   VillageSweatToken: {authority: 'ownable'},
   TokenizedStays: {authority: 'ownable'},
   VillageCitizenNFT: {authority: 'ownable'},
+  DynamicPriceSale: {authority: 'ownable'},
 } as const;
 
 export type UupsContractName = keyof typeof UUPS_CONTRACTS;

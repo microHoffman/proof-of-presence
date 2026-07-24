@@ -32,7 +32,7 @@ async function deployAccess(slug: string) {
   const outputRoot = await mkdtemp(path.join(tmpdir(), 'village-command-'));
   const chainId = Number((await ethers.provider.getNetwork()).chainId);
   const config: VillageDeploymentConfig = {
-    schemaVersion: 4,
+    schemaVersion: 5,
     villageSlug: slug,
     chainId,
     deploymentProfile: 'minimal-village',
@@ -55,7 +55,7 @@ async function deployCitizenNft(slug: string) {
   const outputRoot = await mkdtemp(path.join(tmpdir(), 'village-command-'));
   const chainId = Number((await ethers.provider.getNetwork()).chainId);
   const config: VillageDeploymentConfig = {
-    schemaVersion: 4,
+    schemaVersion: 5,
     villageSlug: slug,
     chainId,
     deploymentProfile: 'minimal-village',

@@ -14,6 +14,7 @@ const moduleName = z.enum([
   'tokenizedStays',
   'tdfTransferPolicy',
   'citizenNft',
+  'dynamicPriceSale',
 ]);
 
 const eoaOwner = z.strictObject({
@@ -35,7 +36,7 @@ const finalOwner = z.discriminatedUnion('type', [eoaOwner, safeOwner]);
  * Unknown fields are rejected so removed options cannot silently look effective in a production config.
  */
 export const VillageDeploymentConfigSchema = z.strictObject({
-  schemaVersion: z.literal(4),
+  schemaVersion: z.literal(5),
   villageSlug: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
   chainId: z.number().int().positive(),
   deploymentProfile: z.enum(['minimal-village', 'token-village', 'tokenized-stays-village', 'tdf']),
@@ -50,6 +51,7 @@ export const VillageDeploymentConfigSchema = z.strictObject({
       name: z.string().min(1).optional(),
       symbol: z.string().min(1).optional(),
       initialSupply: uint.optional(),
+      maxSupply: uint.optional(),
       initialRecipient: nonZeroAddress.optional(),
       transferPolicy: nonZeroAddress.optional(),
       apiOperatorCanMint: z.boolean().optional(),
@@ -75,6 +77,20 @@ export const VillageDeploymentConfigSchema = z.strictObject({
       treasury: nonZeroAddress,
       allowedCounterparties: z.array(nonZeroAddress).optional(),
       restrictionsEnabled: z.boolean().optional(),
+    })
+    .optional(),
+  dynamicPriceSale: z
+    .strictObject({
+      quoteToken: nonZeroAddress,
+      bondingCurve: nonZeroAddress.optional(),
+      villageTreasury: nonZeroAddress,
+      closerFeeRecipient: nonZeroAddress,
+      closerFeeBps: z.number().int().min(0).max(10_000).optional(),
+      saleCap: uint,
+      minimumPurchase: uint,
+      maximumPurchase: uint,
+      purchaseGranularity: uint,
+      maximumRecipientBalance: uint,
     })
     .optional(),
   initialRoleGrants: z.array(z.strictObject({role, account: nonZeroAddress})).optional(),

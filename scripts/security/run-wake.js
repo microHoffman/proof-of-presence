@@ -13,7 +13,9 @@ const TARGETS = ['src/village', 'src/profiles/tdf'];
 const REQUIRED_SOURCES = [
   'src/village/citizenship/VillageCitizenNFT.sol',
   'src/village/stays/TokenizedStays.sol',
+  'src/village/sales/DynamicPriceSale.sol',
   'src/profiles/tdf/TDFTransferPolicy.sol',
+  'src/profiles/tdf/TDFV1BondingCurve.sol',
 ];
 const REQUIRED_DETECTORS = ['reentrancy', 'unchecked-return-value'];
 const FINDINGS_EXIT_CODE = 3;

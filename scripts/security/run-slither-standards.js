@@ -11,6 +11,7 @@ const checks = [
   ['src/village/citizenship/VillageCitizenNFT.sol', 'VillageCitizenNFT', 'ERC721'],
   ['src/village/citizenship/VillageCitizenNFT.sol', 'VillageCitizenNFT', 'ERC165'],
   ['src/profiles/tdf/TDFTransferPolicy.sol', 'TDFTransferPolicy', 'ERC165'],
+  ['src/profiles/tdf/TDFV1BondingCurve.sol', 'TDFV1BondingCurve', 'ERC165'],
 ];
 
 const reportDirectory = ensureReportDirectory('standards');
