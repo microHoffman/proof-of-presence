@@ -18,6 +18,7 @@ security-reports/
 /ignition/deployments/*-31337-*/
 
 node_modules/
+typechain/
 .env
 
 .yalc
