@@ -36,7 +36,7 @@ function printHelp(): void {
   tsx scripts/deploy-village.ts --config path/to/config.json [--network <network>] [--profile tdf]
     [--output-root <path>]
 
-The config must include villageSlug, chainId, deploymentProfile, ownership, modules, and apiOperator.
+The config must include villageSlug, chainId, deploymentProfile, finalOwner, modules, and apiOperator.
 The script rejects configs whose deploymentProfile does not match
 the optional --profile guard.`);
 }
@@ -65,14 +65,14 @@ async function main(): Promise<void> {
       upgrades: upgradesApi,
       ignition: connection.ignition,
       displayIgnitionUi: true,
-      safeProvider: connection.provider,
       networkName: connection.networkName,
       outputRoot: args.outputRoot,
     });
     console.log(`Village deployment manifest written to ${result.manifestPath}`);
     console.log(`Deployment status: ${result.manifest.status}`);
+    if (result.descriptorPath) console.log(`Consumer descriptor written to ${result.descriptorPath}`);
     if (result.manifest.manualActions.length > 0) {
-      console.log('Manual ownership acceptance actions (deployment is already complete):');
+      console.log('Pending final-owner acceptance actions:');
       console.table(
         result.manifest.manualActions.map(({contractName, to, functionName, recipient, acceptAfter}) => ({
           contract: contractName,

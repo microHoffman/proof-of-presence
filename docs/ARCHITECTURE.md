@@ -37,8 +37,10 @@ base. Their readable balances decay with time while mint/burn accounting and hol
 
 `TokenizedStays` holds CommunityToken deposits and records calendar-day entitlements with a price for each date. It
 enforces a fixed 365-day lock window, Gregorian date validity, a bounded booking horizon, pause controls, and
-role-authorized managed cancellation. Off-chain booking workflow state such as confirmation or check-in does not live
-in this contract.
+role-authorized managed cancellation. `previewCreateBookings` reports the account's current credited deposit, locked
+requirements before and after a proposed batch, and the exact resulting deficit. The allowance path pulls that live
+deficit; the permit path signs that same amount and reverts atomically if the state has changed. Off-chain booking
+workflow state such as confirmation or check-in does not live in this contract.
 
 `VillageCitizenNFT` is a UUPS-upgradeable ERC-721 citizenship credential with Metadata, Enumerable, ERC-5192, and
 ERC-4906 support. Credentials are permanently non-transferable and expose no approval path. Suspension and revocation
@@ -93,20 +95,19 @@ The custom-module identifier retains its pre-CitizenNFT bit string whenever Citi
 graphs add a CitizenNFT bit, and sale-enabled graphs add a further bit, without changing named-profile module IDs.
 
 Hardhat Ignition is the sole transaction journal and resumption engine. The deployment wrapper adds config
-validation, OpenZeppelin validation, ownership/Safe handling, on-chain reconciliation, verification, and atomic
-manifest publication. It never replaces Ignition's journal.
+validation, OpenZeppelin validation, ownership handoff, on-chain reconciliation, verification, atomic manifest
+publication, and immutable consumer-descriptor generation. It never replaces Ignition's journal.
 
 ## Authority model
 
-Two ownership modes are supported:
+There is one deployment path. Every contract is initialized to the transaction-sending deployer. The deployer performs
+all address-dependent configuration, including role grants and transfer-policy wiring, verifies the result, and only
+then initiates two-step ownership/default-admin transfers to `finalOwner`.
 
-- `direct`: contracts initialize directly to the final EOA or Safe. Final-owner configuration actions may remain in
-  `pending-owner-actions` until submitted and reconciled.
-- `deployer-handoff`: the deployer completes configuration, initiates two-step ownership/admin transfers, and records
-  acceptance calls in `manualActions`.
-
-Safe-owned actions are prepared as one atomic transaction. Safe Transaction Service state is advisory; live contract
-postconditions determine completion. The API operator receives only configured operational roles and has no upgrade
+When an EOA deployer is also the final owner, no handoff is required and deployment completes immediately. A different
+EOA accepts the pending authorities directly; a Safe accepts them in one prepared atomic transaction. Safe Transaction
+Service state is advisory and no polling loop is required: a one-time reconciliation reads the contracts themselves,
+which are the completion authority. The API operator receives only configured operational roles and has no upgrade
 authority. It is never implicitly made a Citizen operator.
 
 ## Build boundary

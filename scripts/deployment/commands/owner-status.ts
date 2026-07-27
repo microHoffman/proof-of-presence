@@ -1,5 +1,6 @@
 import path from 'node:path';
-import {refreshDeploymentOwnerActions} from '../owner-actions.js';
+import {outputRootForManifest, writeConsumerDescriptor} from '../consumer-descriptor.js';
+import {refreshOwnershipHandoff} from '../handoff.js';
 import {refreshSafeOwnerActionsStatus} from '../safe-service.js';
 import {reconcileExecutedUpgrade} from '../upgrades.js';
 import {
@@ -33,16 +34,14 @@ export async function ownerStatusCommand(
   }
   if (options.upgrade) {
     const upgrade = selectUpgrade(manifest, options.upgrade);
-    if (upgrade.ownerTransaction) {
-      const virtual = {...manifest, ownerActions: [upgrade.ownerAction], ownerTransaction: upgrade.ownerTransaction};
-      const refreshed = await refreshSafeOwnerActionsStatus(virtual, {
+    // Live proxy state is authoritative and can be reconciled without the optional Safe Transaction Service.
+    const reconciliation = await reconcileExecutedUpgrade(manifest.contracts, upgrade, context.ethers.provider);
+    if (upgrade.ownerTransaction && (options.apiKey || options.txServiceUrl)) {
+      upgrade.ownerTransaction = await refreshSafeOwnerActionsStatus(manifest.chainId, upgrade.ownerTransaction, {
         apiKey: options.apiKey,
         txServiceUrl: options.txServiceUrl,
       });
-      upgrade.ownerTransaction = refreshed.ownerTransaction;
     }
-    // Transaction Service state is retained for operators; the proxy slot remains authoritative for execution.
-    const reconciliation = await reconcileExecutedUpgrade(manifest.contracts, upgrade, context.ethers.provider);
     if (upgrade.ownerTransaction?.serviceStatus?.status === 'executed' && !reconciliation.executed) {
       throw new Error(
         `Safe service reports ${upgrade.contractName} upgrade executed but the proxy slot still uses ` +
@@ -50,15 +49,25 @@ export async function ownerStatusCommand(
       );
     }
     await writeVillageDeploymentManifest(manifestPath, manifest);
+    if (upgrade.status === 'executed' && manifest.status === 'complete') {
+      await writeConsumerDescriptor(manifest, outputRootForManifest(manifestPath));
+    }
     console.log(`${upgrade.status}: ${reconciliation.liveImplementation}`);
     return manifest;
   }
-  const updated = await refreshDeploymentOwnerActions(
+  const safeServiceOptions =
+    manifest.handoffTransaction && (options.apiKey || options.txServiceUrl)
+      ? {apiKey: options.apiKey, txServiceUrl: options.txServiceUrl}
+      : undefined;
+  const updated = await refreshOwnershipHandoff(
     manifest,
     {ethers: context.ethers, networkName: context.networkName},
-    manifest.ownerTransaction ? {apiKey: options.apiKey, txServiceUrl: options.txServiceUrl} : undefined,
+    safeServiceOptions,
   );
   await writeVillageDeploymentManifest(manifestPath, updated);
+  if (updated.status === 'complete') {
+    await writeConsumerDescriptor(updated, outputRootForManifest(manifestPath));
+  }
   console.log(updated.status);
   return updated;
 }

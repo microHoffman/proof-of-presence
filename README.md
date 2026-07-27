@@ -28,9 +28,11 @@ The complete test suite currently contains Solidity fuzz/invariant tests and Typ
 - `test/village/` — deployment, Safe, recovery, integration, scale, and upgrade tests.
 - `security/` — security-tool configuration and reviewed regression baselines.
 
-The contract and authority model is described in [Architecture](./docs/ARCHITECTURE.md). Operators should start with
-[Deployment](./docs/DEPLOYMENT.md); API and UI consumers should use [Integration](./docs/INTEGRATION.md). Current
-release work is tracked in [Remaining work](./docs/REMAINING_WORK.md).
+The contract and authority model is described in [Architecture](./docs/ARCHITECTURE.md). Operators deploying a new
+village should follow the [Village deployment runbook](./docs/VILLAGE_DEPLOYMENT_RUNBOOK.md) and use
+[Deployment](./docs/DEPLOYMENT.md) as the detailed reference. API and UI consumers should use
+[Integration](./docs/INTEGRATION.md). Current release work is tracked in
+[Remaining work](./docs/REMAINING_WORK.md).
 
 ## Common commands
 
@@ -41,7 +43,6 @@ yarn validate:upgrades
 yarn deploy:village -- --config config.json --network celoSepolia
 yarn deploy:tdf -- --config config.json --network celoSepolia
 yarn verify:village -- --manifest <manifest.json>
-yarn export:village -- --manifest <manifest.json>
 yarn upgrade:prepare -- --manifest <manifest.json> --contract <name> \
   --implementation <artifact> --version <id> --network <network>
 ```
@@ -51,16 +52,18 @@ Bare `yarn deploy` only prints help; it never sends a transaction.
 ## Deployment records and schemas
 
 Hardhat Ignition owns transaction journaling and resumption. A strict deployment manifest summarizes reconciled
-on-chain state for operators and downstream systems; it does not duplicate the Ignition journal. Consumer exports are
-derived from manifests and contain only stable addresses, ABIs, aliases, and routing metadata.
+on-chain state for operators; it does not duplicate the Ignition journal. Once the final owner holds every authority,
+the deployment tooling automatically writes one immutable consumer descriptor for both the API and UI. The descriptor
+contains stable addresses, complete ABI revision history, exact activation boundaries, aliases, and routing metadata.
 
-- Deployment config: `schemaVersion: 5`.
-- Deployment manifest: `schemaVersion: 5`, with `configSchemaVersion: 5`.
-- Consumer export: `schemaVersion: 3`.
+- Deployment config: `schemaVersion: 1`.
+- Deployment manifest: `schemaVersion: 1`, with `configSchemaVersion: 1`.
+- Consumer descriptor: `schemaVersion: 1`.
 
 `schemaVersion` identifies the JSON wire format. It is not a contract version, proxy storage version, or Ignition
-journal version. The value is required and checked with an exact schema literal, so unsupported or ambiguous files
-fail before deployment. See [Deployment schemas](./docs/DEPLOYMENT.md#deployment-schemas) for the full explanation.
+journal version. No earlier production deployments exist, so only schema 1 is supported; removed draft shapes fail
+before deployment instead of being migrated. See [Deployment schemas](./docs/DEPLOYMENT.md#deployment-schemas) for
+the full explanation.
 
 ## Security
 

@@ -146,8 +146,8 @@
       "storageLayoutSha256": "f846b023549275be2e0c1636ca4bec256cd67a0365c39781e76ec879398473a8"
     },
     "TokenizedStays": {
-      "deployedBytecodeBytes": 19135,
-      "deployedBytecodeSha256": "f3313c906796a2b6cb1ef48f40bf0f9bfe3157c8dbcad91251ae279a1e80acdb",
+      "deployedBytecodeBytes": 20768,
+      "deployedBytecodeSha256": "5dee1e4f85993656258a6dc23982c0a01476922b71809a8135b02447d78db14e",
       "events": {
         "BookingBalanceReconciled(address,uint256,uint256,uint256)": "0x0f0e9684b94e4d0aae24472a23baa23e5f080b7483136ff3d7a74c8b83415d27",
         "BookingCanceled(address,uint16,uint16,uint256)": "0xa8a007a8f6d181846b3661a47edb28c9b4d098dc24b7930a6d82b8e60882f817",
@@ -175,7 +175,7 @@
         "cancelBookingsFor(address,(uint16,uint16)[])": "0x1b1eeaf8",
         "communityToken()": "0x29aa1617",
         "createBookings((uint16,uint16,uint256)[])": "0x00dc2fa6",
-        "createBookingsWithPermit((uint16,uint16,uint256)[],uint256,uint256,uint8,bytes32,bytes32)": "0xe1e97465",
+        "createBookingsWithPermit((uint16,uint16,uint256)[],uint256,uint8,bytes32,bytes32)": "0xf3dbd136",
         "currentDayId()": "0x987c53a9",
         "currentMaximumBookingYear()": "0x2f5ba22d",
         "daysInYear(uint16)": "0x89760504",
@@ -195,6 +195,7 @@
         "pause()": "0x8456cb59",
         "paused()": "0x5c975abb",
         "pendingOwner()": "0xe30c3978",
+        "previewCreateBookings(address,(uint16,uint16,uint256)[])": "0x5429cef6",
         "proxiableUUID()": "0x52d1902d",
         "pruneExpiredBookings(address,(uint16,uint16)[])": "0x17fae439",
         "recoverOrphanedTokens(address,uint256)": "0xb9c16b63",

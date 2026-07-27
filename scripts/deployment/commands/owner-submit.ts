@@ -1,6 +1,7 @@
 import path from 'node:path';
 import {getAddress} from 'ethers';
-import {submitDeploymentOwnerActions} from '../owner-actions.js';
+import {outputRootForManifest, writeConsumerDescriptor} from '../consumer-descriptor.js';
+import {submitOwnershipHandoff} from '../handoff.js';
 import {proposeSafeOwnerActions, type SafeProposalOptions} from '../safe-service.js';
 import {reconcileExecutedUpgrade} from '../upgrades.js';
 import {readUpgradeAuthority} from '../uups-contracts.js';
@@ -19,7 +20,6 @@ export interface OwnerSubmitOptions {
 
 export interface OwnerSubmitContext {
   ethers: any;
-  provider: {request(args: {method: string; params?: readonly unknown[] | object}): Promise<unknown>};
   networkName: string;
 }
 
@@ -38,33 +38,43 @@ export async function ownerSubmitCommand(
     const reconciliation = await reconcileExecutedUpgrade(manifest.contracts, upgrade, context.ethers.provider);
     if (reconciliation.executed) {
       await writeVillageDeploymentManifest(manifestPath, manifest);
+      if (manifest.status === 'complete') {
+        await writeConsumerDescriptor(manifest, outputRootForManifest(manifestPath));
+      }
       console.log(`Upgrade ${options.upgrade} was already executed and is now reconciled`);
       return manifest;
     }
     if (upgrade.ownerTransaction) {
       if (!options.safeOptions) throw new Error('SAFE_PROPOSER_PRIVATE_KEY is required for a Safe-owned upgrade');
-      const virtual = {...manifest, ownerActions: [upgrade.ownerAction], ownerTransaction: upgrade.ownerTransaction};
-      const updated = await proposeSafeOwnerActions(virtual, options.safeOptions);
-      upgrade.ownerTransaction = updated.ownerTransaction;
+      upgrade.ownerTransaction = await proposeSafeOwnerActions(
+        manifest.chainId,
+        upgrade.ownerTransaction,
+        options.safeOptions,
+      );
     } else {
       await submitEoaUpgrade(upgrade, manifest, context.ethers);
     }
     await writeVillageDeploymentManifest(manifestPath, manifest);
+    if (upgrade.status === 'executed' && manifest.status === 'complete') {
+      await writeConsumerDescriptor(manifest, outputRootForManifest(manifestPath));
+    }
     console.log(`Owner action submitted for upgrade ${options.upgrade}`);
     return manifest;
   }
 
-  const updated = await submitDeploymentOwnerActions(
+  const updated = await submitOwnershipHandoff(
     manifest,
     {
       ethers: context.ethers,
-      safeProvider: context.provider,
       networkName: context.networkName,
     },
     options.safeOptions,
   );
   await writeVillageDeploymentManifest(manifestPath, updated);
-  console.log(updated.ownerTransaction?.proposal?.status ?? updated.status);
+  if (updated.status === 'complete') {
+    await writeConsumerDescriptor(updated, outputRootForManifest(manifestPath));
+  }
+  console.log(updated.handoffTransaction?.proposal?.status ?? updated.status);
   return updated;
 }
 

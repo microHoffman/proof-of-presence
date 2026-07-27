@@ -1,26 +1,27 @@
 # Deployment
 
+For the end-to-end operational checklist—from release approval and testnet rehearsal through activation and
+handover—follow the [Village deployment runbook](./VILLAGE_DEPLOYMENT_RUNBOOK.md). This document is the detailed
+configuration and command reference.
+
 ## Configuration
 
-Every deployment starts from a strict JSON config. Unknown fields, missing schema versions, invalid addresses, and
-profile/module inconsistencies are rejected before the network deployment graph runs.
+Every deployment starts from a strict schema-1 JSON config. Unknown fields, missing schema versions, invalid
+addresses, and profile/module inconsistencies are rejected before the network deployment graph runs.
 
 Example TDF config:
 
 ```json
 {
-  "schemaVersion": 5,
+  "schemaVersion": 1,
   "villageSlug": "example-village",
   "chainId": 11142220,
   "deploymentProfile": "tdf",
-  "ownership": {
-    "mode": "direct",
-    "finalOwner": {
-      "type": "safe",
-      "address": "0x1111111111111111111111111111111111111111",
-      "expectedOwners": ["0x2222222222222222222222222222222222222222"],
-      "expectedThreshold": 1
-    }
+  "finalOwner": {
+    "type": "safe",
+    "address": "0x1111111111111111111111111111111111111111",
+    "expectedOwners": ["0x2222222222222222222222222222222222222222"],
+    "expectedThreshold": 1
   },
   "modules": [],
   "apiOperator": "0x3333333333333333333333333333333333333333",
@@ -36,9 +37,7 @@ Example TDF config:
     "name": "Example Village Citizen",
     "symbol": "EXAMPLE CIT",
     "baseURI": "https://example.invalid/citizens/",
-    "operators": [
-      "0x5555555555555555555555555555555555555555"
-    ]
+    "operators": ["0x5555555555555555555555555555555555555555"]
   },
   "presenceToken": {
     "name": "Example Presence",
@@ -70,32 +69,31 @@ Example TDF config:
 ```
 
 Use decimal strings for integers that may exceed JavaScript's safe integer range. The selected RPC chain ID must
-match `chainId`. `token-village`,
-`tokenized-stays-village`, and `tdf` automatically include `VillageCitizenNFT`; `minimal-village` remains unchanged.
-Every deployment that selects CitizenNFT requires a nonempty `citizenNft.baseURI`. Its default name is the title-cased
-deployment slug plus `Citizen`, its default symbol is the deployment slug plus `CIT`, and its operators default to an
-empty list. Citizen operators are taken only from `citizenNft.operators` or explicit `initialRoleGrants`; they are
-never inferred from `apiOperator`.
+match `chainId`. `finalOwner` is the only ownership setting. The deployer is inferred from the transaction signer:
+it may be the same EOA as the final owner, a temporary EOA handing authority to another EOA, or a temporary EOA
+handing authority to a Safe. `expectedOwners` and `expectedThreshold` optionally validate the live Safe before any
+deployment transaction is sent.
 
-A TDF profile requires both treasury recipients and a standard 18-decimal quote token, enables every
-module, and deploys `TDFV1BondingCurve` automatically; omit `bondingCurve` in a TDF config. The historical curve
-retains its nominal 4,109 TDF mathematical boundary, but TDF deployment requires at least 5,381 TDF. That operating
-floor is the lowest historical V1 quote-vector supply and keeps every configured whole-token purchase from 1 through
-100 TDF within the unchanged V1 checked arithmetic. The TDF transfer policy prevents burns below the same floor.
-TDF uses a token maximum of 18,600 TDF, sale cap of 15,097.5 TDF, and a current recipient-balance limit of 915 TDF.
-If omitted, `closerFeeBps` defaults to 500 (5%) for TDF.
+`token-village`, `tokenized-stays-village`, and `tdf` automatically include `VillageCitizenNFT`;
+`minimal-village` remains unchanged. Every deployment that selects CitizenNFT requires a nonempty
+`citizenNft.baseURI`. Its default name is the title-cased deployment slug plus `Citizen`, its default symbol is the
+deployment slug plus `CIT`, and its operators default to an empty list. Citizen operators come only from
+`citizenNft.operators` or explicit `initialRoleGrants`; they are never inferred from `apiOperator`.
+
+A TDF profile requires both treasury recipients and a standard 18-decimal quote token, enables every module, and
+deploys `TDFV1BondingCurve` automatically; omit `bondingCurve` in a TDF config. The historical curve retains its
+nominal 4,109 TDF mathematical boundary, but TDF deployment requires at least 5,381 TDF. That operating floor is the
+lowest historical V1 quote-vector supply and keeps every configured whole-token purchase from 1 through 100 TDF
+within the unchanged V1 checked arithmetic. The TDF transfer policy prevents burns below the same floor. TDF uses a
+token maximum of 18,600 TDF, sale cap of 15,097.5 TDF, and current recipient-balance limit of 915 TDF. If omitted,
+`closerFeeBps` defaults to 500 (5%) for TDF.
 
 For a non-TDF sale, select `dynamicPriceSale` explicitly, supply an already deployed ERC-165 `IBondingCurve` address,
 and configure `closerFeeBps` explicitly. The curve's declared quote-token decimals must match the quote token.
 CommunityToken `maxSupply` is required whenever that token is selected. It is owner-adjustable after deployment, but
 cannot be zero or lower than current total supply; reconciliation treats a value different from config as drift.
-For storage compatibility, a proxy upgraded from the pre-cap implementation treats its unset cap slot as unlimited
-until its owner calls `setMaxSupply`; newly initialized proxies cannot use that legacy fallback.
 
-The sale's `MINTER_ROLE` grant is an address-dependent post-deployment owner action. Deployer-handoff mode executes it
-before initiating ownership transfers. A direct Safe deployment records it in the atomic pending owner-action batch.
-
-## Commands and records
+## Deployment, configuration, and handoff
 
 Deploy a profile:
 
@@ -118,31 +116,63 @@ Canonical manifest paths are:
 - `deployments/contracts/<chainId>/<villageSlug>/<contract>.json`
 
 Ignition state is under `ignition/deployments/<deploymentId>/`. For real networks, retain the exact config, source
-revision, Ignition journal, manifest, and verification output in version control and durable backup. Localhost and
-ephemeral Hardhat outputs remain ignored.
+revision, Ignition journal, manifest, descriptor, and verification output in version control and durable backup.
+Localhost and ephemeral Hardhat outputs remain ignored.
 
-Rerunning the same config resumes the stable Ignition deployment ID and reconciles live state. Reusing a manifest path
-with a different config hash fails.
+There is one ownership workflow:
 
-## Ownership and verification
+1. Every contract initializes to the deployer.
+2. The deployer executes and verifies all address-dependent setup, including the sale's `MINTER_ROLE`, transfer-policy
+   counterparties and restriction flag, and every configured initial role.
+3. If the deployer is the final owner, the deployment is immediately complete.
+4. Otherwise, the deployer initiates every two-step ownership/default-admin transfer. The manifest becomes
+   `pending-handoff`; configuration is already complete and only acceptance remains.
 
-A direct EOA deployment can execute its owner actions immediately. A direct Safe deployment records
-`pending-owner-actions`; propose and monitor the batch with:
+For a different final EOA, run `owner:submit` with that EOA's signer. For a Safe, configure
+`SAFE_PROPOSER_PRIVATE_KEY`, run `owner:submit` once to propose one atomic acceptance transaction, and let the Safe
+owners execute it through their normal process:
 
 ```sh
 yarn owner:submit -- --manifest <manifest.json> --network <network>
+```
+
+After acceptance, either rerun the original deployment command or perform a one-time reconciliation:
+
+```sh
 yarn owner:status -- --manifest <manifest.json> --network <network>
 ```
 
-In deployer-handoff mode, `manualActions` records the final owner's acceptance calls. The deployment wrapper may
-report setup complete once transfers are initiated, but a product must independently confirm every final authority
-before activation.
+No continuous status monitoring is needed. Safe Transaction Service state is optional and advisory; the status command
+does not depend on it unless service options are explicitly supplied. Live `owner()`, pending-owner, and
+`VillageAccess` default-admin state determine completion. Rerunning the same config resumes the stable Ignition
+deployment ID and reconciles live state. Reusing a manifest path with a different config hash fails.
 
 Verification is retryable and never changes whether a successfully reconciled deployment exists:
 
 ```sh
-yarn verify:village -- --manifest <manifest.json> --network <network>
+yarn verify:village -- --manifest <manifest.json>
 ```
+
+## Consumer descriptors
+
+When live reconciliation proves that the final owner holds every authority, the deployment tooling automatically
+writes one immutable schema-1 descriptor for both API and UI consumers:
+
+- `export/villages/<chainId>/<villageSlug>/<revision>.json`
+- `export/profiles/<deploymentProfile>/<chainId>/<villageSlug>/<revision>.json`
+
+`revision` is a deterministic content hash. Reconciliation of the same state reuses the same file and bytes; a
+contract upgrade produces a new immutable descriptor instead of rewriting the old one. A `pending-handoff`
+deployment does not produce a descriptor.
+
+Each descriptor contains deployment identity, chain and network, normalized modules, `deploymentStart`, proxy/plain
+contract addresses, and every contract revision. The initial ABI revision is effective from `deploymentStart`; each
+upgrade revision records its exact `Upgraded` event. Revisions also contain ABI hashes and implementation addresses
+where applicable. The descriptor deliberately excludes operator-only ownership actions, local paths, code hashes, and
+timestamps.
+
+Consumers should pin the reviewed descriptor file and its `revision`; no manual ABI/address export or post-deployment
+file editing is required.
 
 ## Upgrades
 
@@ -155,25 +185,20 @@ yarn upgrade:prepare -- --manifest <manifest.json> --contract CommunityToken \
 ```
 
 The command compares the current and next implementation storage layouts, deploys the candidate through Ignition,
-records its runtime code hash, and prepares `upgradeToAndCall`. Owner submission/status commands accept
-`--upgrade <contract>:<version>`. Live ERC-1967 proxy state is reconciled before another candidate can be prepared.
+records its runtime code hash and ABI, and prepares `upgradeToAndCall`. Owner submission/status commands accept
+`--upgrade <contract>:<version>`. Reconciliation verifies the ERC-1967 slot and the exact `Upgraded` event, appends
+the new ABI revision with its activation boundary, and automatically writes the new immutable descriptor. Live proxy
+state must reconcile before another candidate can be prepared.
 
 ## Deployment schemas
 
-`schemaVersion` is a wire-format discriminator for JSON files. It protects readers from silently interpreting a file
-whose fields or meanings have changed.
+This repository starts with and supports only:
 
-This repository uses:
+- config schema `1`;
+- manifest schema `1`, recording `configSchemaVersion: 1`;
+- consumer descriptor schema `1`.
 
-- config schema `5`;
-- manifest schema `5`, which records `configSchemaVersion: 5`;
-- consumer export schema `3`.
-
-Config parsing requires the literal `5`; there is no default. The version is part of the canonical config hash.
-Manifest parsing also requires the exact current literals. Schema 4 added CommunityToken maximum supply and
-DynamicPriceSale configuration; schema 5 adds CitizenNFT configuration and normalized module state. Older shapes are
-intentionally rejected instead of accepted through aliases.
-
-Schema versions are independent of Solidity versions, proxy implementation revisions, `reinitializer(n)`, and
-Ignition's internal journal format. Increase a schema version when a breaking JSON field, type, invariant, or meaning
-changes. Additive fields may still require a bump when strict consumers would otherwise reject them.
+`schemaVersion` is a JSON wire-format discriminator. It is independent of Solidity versions, proxy implementation
+revisions, `reinitializer(n)`, and Ignition's journal format. Parsing requires the exact literal `1`; there is no
+default, alias, or compatibility code for earlier draft shapes because no deployment used them. Increase a schema
+version only when a future breaking JSON field, type, invariant, or meaning requires it.

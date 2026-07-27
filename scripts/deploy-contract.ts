@@ -77,7 +77,6 @@ async function main(): Promise<void> {
       upgrades: upgradesApi,
       ignition: connection.ignition,
       displayIgnitionUi: true,
-      safeProvider: connection.provider,
       networkName: connection.networkName,
       outputRoot,
       deploymentIdOverride: `contract-${config.chainId}-${config.villageSlug}-${contractSlug}`,

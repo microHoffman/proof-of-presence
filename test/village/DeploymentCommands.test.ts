@@ -1,4 +1,4 @@
-import {mkdtemp, readFile, writeFile} from 'node:fs/promises';
+import {mkdtemp, readFile, readdir, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {expect} from 'chai';
@@ -28,15 +28,15 @@ function upgradeContext() {
 }
 
 async function deployAccess(slug: string) {
-  const [, owner, apiOperator] = await ethers.getSigners();
+  const [owner, apiOperator] = await ethers.getSigners();
   const outputRoot = await mkdtemp(path.join(tmpdir(), 'village-command-'));
   const chainId = Number((await ethers.provider.getNetwork()).chainId);
   const config: VillageDeploymentConfig = {
-    schemaVersion: 5,
+    schemaVersion: 1,
     villageSlug: slug,
     chainId,
     deploymentProfile: 'minimal-village',
-    ownership: {mode: 'direct', finalOwner: {type: 'eoa', address: owner.address}},
+    finalOwner: {type: 'eoa', address: owner.address},
     modules: [],
     apiOperator: apiOperator.address,
   };
@@ -51,15 +51,15 @@ async function deployAccess(slug: string) {
 }
 
 async function deployCitizenNft(slug: string) {
-  const [, owner, apiOperator] = await ethers.getSigners();
+  const [owner, apiOperator] = await ethers.getSigners();
   const outputRoot = await mkdtemp(path.join(tmpdir(), 'village-command-'));
   const chainId = Number((await ethers.provider.getNetwork()).chainId);
   const config: VillageDeploymentConfig = {
-    schemaVersion: 5,
+    schemaVersion: 1,
     villageSlug: slug,
     chainId,
     deploymentProfile: 'minimal-village',
-    ownership: {mode: 'direct', finalOwner: {type: 'eoa', address: owner.address}},
+    finalOwner: {type: 'eoa', address: owner.address},
     modules: ['citizenNft'],
     apiOperator: apiOperator.address,
     citizenNft: {baseURI: 'https://citizen.example/metadata/'},
@@ -72,6 +72,29 @@ async function deployCitizenNft(slug: string) {
     outputRoot,
   });
   return {...result, owner};
+}
+
+async function deployAccessForHandoff(slug: string) {
+  const [, finalOwner, apiOperator] = await ethers.getSigners();
+  const outputRoot = await mkdtemp(path.join(tmpdir(), 'village-command-'));
+  const chainId = Number((await ethers.provider.getNetwork()).chainId);
+  const config: VillageDeploymentConfig = {
+    schemaVersion: 1,
+    villageSlug: slug,
+    chainId,
+    deploymentProfile: 'minimal-village',
+    finalOwner: {type: 'eoa', address: finalOwner.address},
+    modules: [],
+    apiOperator: apiOperator.address,
+  };
+  const result = await deployVillage(config, {
+    ethers,
+    upgrades: upgradesApi,
+    ignition: connection.ignition,
+    networkName: 'default',
+    outputRoot,
+  });
+  return {...result, outputRoot, chainId};
 }
 
 async function prepare(manifestPath: string, version: string) {
@@ -87,6 +110,25 @@ async function prepare(manifestPath: string, version: string) {
 }
 
 describe('Deployment commands', function () {
+  it('writes the consumer descriptor when an EOA handoff completes', async function () {
+    const {manifestPath, outputRoot, chainId} = await deployAccessForHandoff('command-complete-handoff');
+    const completed = await ownerSubmitCommand({manifestPath}, {ethers, networkName: 'default'});
+
+    expect(completed.status).to.equal('complete');
+    const descriptorDirectory = path.join(
+      outputRoot,
+      'export',
+      'villages',
+      String(chainId),
+      'command-complete-handoff',
+    );
+    const descriptorFiles = await readdir(descriptorDirectory);
+    expect(descriptorFiles).to.have.length(1);
+    const descriptor = JSON.parse(await readFile(path.join(descriptorDirectory, descriptorFiles[0]), 'utf8'));
+    expect(descriptor.schemaVersion).to.equal(1);
+    expect(descriptor.revision).to.match(/^0x[0-9a-f]{64}$/);
+  });
+
   it('prepares an upgrade with its implementation code hash', async function () {
     const {manifestPath} = await deployAccess('command-prepare-upgrade');
     const manifest = await prepare(manifestPath, 'prepared-test');
@@ -98,6 +140,9 @@ describe('Deployment commands', function () {
       status: 'prepared',
     });
     expect(manifest.upgradeHistory![0].implementationCodeHash).to.match(/^0x[0-9a-f]{64}$/);
+    expect(manifest.upgradeHistory![0].candidateAbi).to.be.an('array').and.not.empty;
+    expect(manifest.upgradeHistory![0].candidateAbiHash).to.match(/^0x[0-9a-f]{64}$/);
+    expect(manifest.upgradeHistory![0].preparedAtBlock.blockNumber).to.match(/^\d+$/);
   });
 
   it('prepares and submits a VillageCitizenNFT upgrade through the canonical UUPS registry', async function () {
@@ -121,12 +166,14 @@ describe('Deployment commands', function () {
 
     const executed = await ownerSubmitCommand(
       {manifestPath, upgrade: 'VillageCitizenNFT:citizen-prepared-test'},
-      {ethers, provider: connection.provider, networkName: 'default'},
+      {ethers, networkName: 'default'},
     );
     expect(executed.upgradeHistory![0].status).to.equal('executed');
-    expect(executed.contracts.VillageCitizenNFT.implementationAddress).to.equal(
+    expect(executed.contracts.VillageCitizenNFT.revisions.at(-1)!.implementationAddress).to.equal(
       executed.upgradeHistory![0].newImplementation,
     );
+    expect(executed.contracts.VillageCitizenNFT.revisions).to.have.length(2);
+    expect(executed.upgradeHistory![0].executedAt?.transactionHash).to.match(/^0x[0-9a-f]{64}$/);
   });
 
   it('rejects owner status on the wrong chain without rewriting the manifest', async function () {
@@ -157,22 +204,40 @@ describe('Deployment commands', function () {
 
     const reconciled = await prepare(manifestPath, 'next-release');
     expect(reconciled.upgradeHistory![0].status).to.equal('executed');
-    expect(reconciled.contracts.VillageAccess.implementationAddress).to.equal(upgrade.newImplementation);
-    expect(reconciled.contracts.VillageAccess.implementationRuntimeCodeHash).to.equal(upgrade.implementationCodeHash);
+    expect(reconciled.contracts.VillageAccess.revisions.at(-1)!.implementationAddress).to.equal(
+      upgrade.newImplementation,
+    );
+    expect(reconciled.contracts.VillageAccess.revisions.at(-1)!.implementationRuntimeCodeHash).to.equal(
+      upgrade.implementationCodeHash,
+    );
   });
 
   it('submits and reconciles a prepared EOA-owned upgrade', async function () {
-    const {manifestPath} = await deployAccess('command-submit-upgrade');
+    const {manifestPath, descriptorPath} = await deployAccess('command-submit-upgrade');
     await prepare(manifestPath, 'eoa-submit');
 
     const executed = await ownerSubmitCommand(
       {manifestPath, upgrade: 'VillageAccess:eoa-submit'},
-      {ethers, provider: connection.provider, networkName: 'default'},
+      {ethers, networkName: 'default'},
     );
     const upgrade = executed.upgradeHistory![0];
     expect(upgrade.status).to.equal('executed');
-    expect(executed.contracts.VillageAccess.implementationAddress).to.equal(upgrade.newImplementation);
-    expect(executed.contracts.VillageAccess.implementationRuntimeCodeHash).to.equal(upgrade.implementationCodeHash);
+    expect(executed.contracts.VillageAccess.revisions.at(-1)!.implementationAddress).to.equal(
+      upgrade.newImplementation,
+    );
+    expect(executed.contracts.VillageAccess.revisions.at(-1)!.implementationRuntimeCodeHash).to.equal(
+      upgrade.implementationCodeHash,
+    );
+    const descriptorDirectory = path.dirname(descriptorPath!);
+    const descriptorFiles = await readdir(descriptorDirectory);
+    expect(descriptorFiles).to.have.length(2);
+    const upgradedDescriptorPath = path.join(
+      descriptorDirectory,
+      descriptorFiles.find((file) => path.join(descriptorDirectory, file) !== descriptorPath)!,
+    );
+    const upgradedDescriptor = JSON.parse(await readFile(upgradedDescriptorPath, 'utf8'));
+    expect(upgradedDescriptor.contracts.VillageAccess.revisions).to.have.length(2);
+    expect(upgradedDescriptor.contracts.VillageAccess.revisions.at(-1).abiHash).to.equal(upgrade.candidateAbiHash);
   });
 
   it('rejects untracked implementation drift before deploying another candidate', async function () {

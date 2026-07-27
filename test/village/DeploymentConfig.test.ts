@@ -1,5 +1,6 @@
 import {expect} from 'chai';
 import {ethers} from '../hardhat.js';
+import {canonicalJsonStringify} from '../../scripts/deployment/canonical-json.js';
 import {parseVillageDeploymentConfig} from '../../scripts/deployment/config.js';
 import {
   deriveInitialRoleGrants,
@@ -14,45 +15,56 @@ import {
 import {selectVillageProfileModule} from '../../ignition/modules/profiles/select.js';
 
 describe('Village deployment config schema', function () {
+  it('canonicalizes durable JSON hashes independently of object key order', function () {
+    expect(canonicalJsonStringify({z: 1, a: {d: 2, b: 3}, omitted: undefined})).to.equal('{"a":{"b":3,"d":2},"z":1}');
+    expect(canonicalJsonStringify([1, undefined, {b: 2, a: 1}])).to.equal('[1,null,{"a":1,"b":2}]');
+  });
+
   it('requires the current schema version, normalizes defaults, and rejects unknown fields', async function () {
     const [, owner, apiOperator] = await ethers.getSigners();
     const base = {
-      schemaVersion: 5,
+      schemaVersion: 1,
       villageSlug: 'schema-test',
       chainId: 31337,
       deploymentProfile: 'minimal-village',
-      ownership: {finalOwner: {type: 'eoa', address: owner.address}},
+      finalOwner: {type: 'eoa', address: owner.address},
       modules: [],
       apiOperator: apiOperator.address,
     } as const;
 
     const parsed = parseVillageDeploymentConfig(base);
-    expect(parsed.schemaVersion).to.equal(5);
-    expect(parsed.ownership.mode).to.equal('direct');
+    expect(parsed.schemaVersion).to.equal(1);
+    expect(parsed.finalOwner).to.deep.equal(base.finalOwner);
     expect(() => parseVillageDeploymentConfig({...base, owner: {type: 'eoa', address: owner.address}})).to.throw();
     expect(() => parseVillageDeploymentConfig({...base, roleAssignmentMode: 'initializer-seeded'})).to.throw();
     expect(() => parseVillageDeploymentConfig({...base, modules: ['membership']})).to.throw();
     const {schemaVersion: _schemaVersion, ...withoutSchemaVersion} = base;
     expect(() => parseVillageDeploymentConfig(withoutSchemaVersion)).to.throw();
-    expect(() => parseVillageDeploymentConfig({...base, schemaVersion: 3})).to.throw();
+    expect(() => parseVillageDeploymentConfig({...base, schemaVersion: 2})).to.throw();
   });
 
-  it('accepts explicit handoff and rejects removed auto-Safe configuration', async function () {
+  it('accepts EOA and Safe final owners while rejecting removed ownership modes', async function () {
     const [, owner, apiOperator] = await ethers.getSigners();
     const parsed = parseVillageDeploymentConfig({
-      schemaVersion: 5,
+      schemaVersion: 1,
       villageSlug: 'handoff-schema-test',
       chainId: 31337,
       deploymentProfile: 'minimal-village',
-      ownership: {mode: 'deployer-handoff', finalOwner: {type: 'eoa', address: owner.address}},
+      finalOwner: {type: 'eoa', address: owner.address},
       modules: [],
       apiOperator: apiOperator.address,
     });
-    expect(parsed.ownership.mode).to.equal('deployer-handoff');
+    expect(parsed.finalOwner).to.deep.equal({type: 'eoa', address: owner.address});
     expect(() =>
       parseVillageDeploymentConfig({
         ...parsed,
-        ownership: {mode: 'direct', finalOwner: {type: 'auto-safe', address: owner.address}},
+        finalOwner: {type: 'auto-safe', address: owner.address},
+      }),
+    ).to.throw();
+    expect(() =>
+      parseVillageDeploymentConfig({
+        ...parsed,
+        ownership: {mode: 'direct', finalOwner: parsed.finalOwner},
       }),
     ).to.throw();
   });
@@ -61,11 +73,11 @@ describe('Village deployment config schema', function () {
     const [, owner, apiOperator] = await ethers.getSigners();
     expect(() =>
       parseVillageDeploymentConfig({
-        schemaVersion: 5,
+        schemaVersion: 1,
         villageSlug: 'negative-value-test',
         chainId: 31337,
         deploymentProfile: 'token-village',
-        ownership: {mode: 'direct', finalOwner: {type: 'eoa', address: owner.address}},
+        finalOwner: {type: 'eoa', address: owner.address},
         modules: [],
         apiOperator: apiOperator.address,
         communityToken: {initialSupply: -1},
@@ -76,11 +88,11 @@ describe('Village deployment config schema', function () {
   it('rejects custom module compositions with missing dependencies', async function () {
     const [, owner, apiOperator] = await ethers.getSigners();
     const config: VillageDeploymentConfig = {
-      schemaVersion: 5,
+      schemaVersion: 1,
       villageSlug: 'invalid-tokenized',
       chainId: 31337,
       deploymentProfile: 'minimal-village',
-      ownership: {mode: 'direct', finalOwner: {type: 'eoa', address: owner.address}},
+      finalOwner: {type: 'eoa', address: owner.address},
       modules: ['tokenizedStays'],
       apiOperator: apiOperator.address,
     };
@@ -93,11 +105,11 @@ describe('Village deployment config schema', function () {
   it('rejects conflicting external and deployed transfer policies', async function () {
     const [, owner, apiOperator, treasury] = await ethers.getSigners();
     const config: VillageDeploymentConfig = {
-      schemaVersion: 5,
+      schemaVersion: 1,
       villageSlug: 'conflicting-policies',
       chainId: 31337,
       deploymentProfile: 'tdf',
-      ownership: {mode: 'direct', finalOwner: {type: 'eoa', address: owner.address}},
+      finalOwner: {type: 'eoa', address: owner.address},
       modules: [],
       apiOperator: apiOperator.address,
       communityToken: {maxSupply: '18600000000000000000000', transferPolicy: treasury.address},
@@ -125,11 +137,11 @@ describe('Village deployment config schema', function () {
       maximumRecipientBalance: '200',
     };
     const generic = parseVillageDeploymentConfig({
-      schemaVersion: 5,
+      schemaVersion: 1,
       villageSlug: 'generic-fee-required',
       chainId: 31337,
       deploymentProfile: 'minimal-village',
-      ownership: {mode: 'direct', finalOwner: {type: 'eoa', address: owner.address}},
+      finalOwner: {type: 'eoa', address: owner.address},
       modules: ['communityToken', 'dynamicPriceSale'],
       apiOperator: apiOperator.address,
       communityToken: {maxSupply: '1000'},
@@ -147,11 +159,11 @@ describe('Village deployment config schema', function () {
     const [, owner, apiOperator, initialRecipient, quoteToken, treasury, closerFeeRecipient] =
       await ethers.getSigners();
     const config = parseVillageDeploymentConfig({
-      schemaVersion: 5,
+      schemaVersion: 1,
       villageSlug: 'tdf-operating-supply',
       chainId: 31337,
       deploymentProfile: 'tdf',
-      ownership: {mode: 'direct', finalOwner: {type: 'eoa', address: owner.address}},
+      finalOwner: {type: 'eoa', address: owner.address},
       modules: [],
       apiOperator: apiOperator.address,
       communityToken: {
@@ -268,11 +280,11 @@ describe('Village deployment config schema', function () {
 
     for (const [index, testCase] of cases.entries()) {
       const config = parseVillageDeploymentConfig({
-        schemaVersion: 5,
+        schemaVersion: 1,
         villageSlug: `profile-selection-${index}`,
         chainId: 31337,
         deploymentProfile: testCase.profile,
-        ownership: {mode: 'direct', finalOwner: {type: 'eoa', address: owner.address}},
+        finalOwner: {type: 'eoa', address: owner.address},
         modules: testCase.modules,
         apiOperator: apiOperator.address,
         presenceToken: {decayRatePerDay: 288_617},
@@ -293,11 +305,11 @@ describe('Village deployment config schema', function () {
   it('requires a nonempty CitizenNFT base URI and grants only explicitly configured operators', async function () {
     const [, owner, apiOperator, citizenOperator] = await ethers.getSigners();
     const withoutCitizenConfig: VillageDeploymentConfig = {
-      schemaVersion: 5,
+      schemaVersion: 1,
       villageSlug: 'citizen-validation',
       chainId: 31337,
       deploymentProfile: 'token-village',
-      ownership: {mode: 'direct', finalOwner: {type: 'eoa', address: owner.address}},
+      finalOwner: {type: 'eoa', address: owner.address},
       modules: [],
       apiOperator: apiOperator.address,
       communityToken: {maxSupply: '1'},

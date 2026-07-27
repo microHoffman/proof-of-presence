@@ -1,3 +1,5 @@
+import {readFile} from 'node:fs/promises';
+import path from 'node:path';
 import {ZeroAddress, getAddress} from 'ethers';
 import type {DeploymentParameters, IgnitionModule} from '@nomicfoundation/ignition-core';
 import {COMMUNITY_TOKEN_MODULE_ID} from '../../ignition/modules/contracts/CommunityToken.js';
@@ -15,12 +17,13 @@ import {TDF_TOKENIZED_STAYS_MODULE_ID} from '../../ignition/modules/profiles/Tdf
 import {selectVillageProfileModule} from '../../ignition/modules/profiles/select.js';
 import type {
   ManifestContract,
+  BlockReference,
   NormalizedModules,
   ResolvedRoleGrant,
   VillageDeploymentConfig,
   VillageDeploymentContext,
 } from './village.js';
-import {resolvedCloserFeeBps} from './village.js';
+import {createInitialContractRevision, resolvedCloserFeeBps} from './village.js';
 import type {UupsContractName} from './uups-contracts.js';
 
 export interface IgnitionVillageDeployment {
@@ -31,6 +34,7 @@ export interface IgnitionVillageDeployment {
   contracts: Record<string, ManifestContract>;
   instances: Record<string, any>;
   initializedTransferPolicy: string;
+  deploymentStart: BlockReference;
 }
 
 /** OpenZeppelin validation is the mandatory preflight before Ignition can submit the graph. */
@@ -176,12 +180,14 @@ export async function deployVillageIgnitionGraph(
     initialOwner,
     initializerGrants,
   );
+  const beforeDeployment = await context.ethers.provider.getBlock('latest');
   const deployed = await context.ignition.deploy(module, {
     parameters,
     deploymentId,
     defaultSender: deployerAddress,
     displayUi: context.displayIgnitionUi ?? false,
   });
+  const deploymentStart = await readIgnitionDeploymentStart(context, deploymentId, Number(beforeDeployment.number));
   const contracts: Record<string, ManifestContract> = {};
   const instances: Record<string, any> = {};
 
@@ -192,12 +198,13 @@ export async function deployVillageIgnitionGraph(
     authority?: 'ownerless',
   ): Promise<void> => {
     const instance = deployed[resultKey];
+    const abi = JSON.parse(instance.interface.formatJson()) as unknown[];
     contracts[contractName] = {
       name: contractName,
       deploymentName: `${config.villageSlug}_${contractName}`,
       address: getAddress(await instance.getAddress()),
       constructorArgs,
-      abi: JSON.parse(instance.interface.formatJson()) as unknown[],
+      revisions: [createInitialContractRevision(abi, undefined, deploymentStart)],
       authority,
     };
     instances[contractName] = instance;
@@ -211,13 +218,13 @@ export async function deployVillageIgnitionGraph(
     const instance = deployed[resultPrefix];
     const implementation = deployed[`${resultPrefix}Implementation`];
     const proxy = deployed[`${resultPrefix}Proxy`];
+    const abi = JSON.parse(instance.interface.formatJson()) as unknown[];
     contracts[contractName] = {
       name: contractName,
       deploymentName: `${config.villageSlug}_${contractName}`,
       address: getAddress(await proxy.getAddress()),
-      implementationAddress: getAddress(await implementation.getAddress()),
       initializerArgs,
-      abi: JSON.parse(instance.interface.formatJson()) as unknown[],
+      revisions: [createInitialContractRevision(abi, getAddress(await implementation.getAddress()), deploymentStart)],
     };
     // All later callers use the proxy-bound interface. The implementation address is provenance and upgrade metadata.
     instances[contractName] = instance;
@@ -315,7 +322,56 @@ export async function deployVillageIgnitionGraph(
     contracts,
     instances,
     initializedTransferPolicy,
+    deploymentStart,
   };
+}
+
+async function readIgnitionDeploymentStart(
+  context: VillageDeploymentContext,
+  deploymentId: string,
+  beforeDeploymentBlock: number,
+): Promise<BlockReference> {
+  const projectRoot = context.projectRoot ?? process.cwd();
+  const configuredRoot = context.ignitionRoot ?? process.env.IGNITION_ROOT ?? 'ignition';
+  const journalPath = path.join(
+    path.resolve(projectRoot, configuredRoot),
+    'deployments',
+    deploymentId,
+    'journal.jsonl',
+  );
+  try {
+    const confirmations = (await readFile(journalPath, 'utf8'))
+      .split('\n')
+      .filter(Boolean)
+      .map(
+        (line) =>
+          JSON.parse(line) as {
+            type?: string;
+            receipt?: {status?: string; blockNumber?: number; blockHash?: string};
+          },
+      )
+      .filter(
+        (entry) =>
+          entry.type === 'TRANSACTION_CONFIRM' &&
+          entry.receipt?.status === 'SUCCESS' &&
+          entry.receipt.blockNumber !== undefined &&
+          entry.receipt.blockHash !== undefined,
+      )
+      .sort((left, right) => left.receipt!.blockNumber! - right.receipt!.blockNumber!);
+    const first = confirmations[0]?.receipt;
+    if (first?.blockNumber !== undefined && first.blockHash) {
+      return {blockNumber: String(first.blockNumber), blockHash: first.blockHash};
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
+
+  // Simulated Hardhat networks don't persist Ignition journals. Their first post-call block is the exact start.
+  const firstBlock = await context.ethers.provider.getBlock(beforeDeploymentBlock + 1);
+  if (!firstBlock?.hash) {
+    throw new Error(`Cannot determine deployment start for Ignition deployment '${deploymentId}'`);
+  }
+  return {blockNumber: String(firstBlock.number), blockHash: firstBlock.hash};
 }
 
 export function isPolicyOnlyDeployment(modules: NormalizedModules): boolean {

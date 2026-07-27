@@ -49,7 +49,7 @@ async function main(): Promise<void> {
       : undefined;
     await ownerSubmitCommand(
       {manifestPath: args.manifest, upgrade: args.upgrade, safeOptions},
-      {ethers: connection.ethers, provider: connection.provider, networkName: connection.networkName},
+      {ethers: connection.ethers, networkName: connection.networkName},
     );
   } finally {
     await connection.close();

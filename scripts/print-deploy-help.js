@@ -7,12 +7,11 @@ console.log(`Explicit deployment commands:
   npm run deploy:village -- --config path/to/config.json [--network <network>]
   npm run deploy:tdf -- --config path/to/config.json [--network <network>]
 
-Verification and export:
+Verification:
 
   npm run verify:village -- --manifest deployments/villages/<chainId>/<slug>.json
-  npm run export:village -- --manifest deployments/villages/<chainId>/<slug>.json [--out <file.json>]
 
-Owner actions:
+Ownership handoff and upgrades:
 
   npm run owner:submit -- --manifest <manifest.json> --network <network> [--upgrade <contract>:<version>]
   npm run owner:status -- --manifest <manifest.json> --network <network> [--upgrade <contract>:<version>]

@@ -2,9 +2,12 @@ import path from 'node:path';
 import {getAddress, keccak256, toUtf8Bytes, ZeroAddress} from 'ethers';
 import {buildUpgradeImplementationModule} from '../../../ignition/modules/upgrades/UpgradeImplementation.js';
 import {prepareSafeOwnerActions} from '../safe-service.js';
+import {outputRootForManifest, writeConsumerDescriptor} from '../consumer-descriptor.js';
 import {reconcileExecutedUpgrade} from '../upgrades.js';
 import {isSupportedUupsContract, readUpgradeAuthority} from '../uups-contracts.js';
 import {
+  currentImplementationAddress,
+  hashContractAbi,
   readVillageDeploymentManifest,
   writeVillageDeploymentManifest,
   type FinalOwnerConfig,
@@ -43,14 +46,17 @@ export async function prepareUpgradeCommand(
   const manifestPath = path.resolve(options.manifestPath);
   const manifest = await readVillageDeploymentManifest(manifestPath);
   const record = manifest.contracts[options.contractName];
-  if (!record?.implementationAddress) throw new Error(`Manifest has no UUPS deployment for ${options.contractName}`);
+  const recordedImplementation = record ? currentImplementationAddress(record) : undefined;
+  if (!record || !recordedImplementation) {
+    throw new Error(`Manifest has no UUPS deployment for ${options.contractName}`);
+  }
   if (context.networkName !== manifest.network) {
     throw new Error(`Network '${context.networkName}' does not match manifest`);
   }
 
   const chainId = Number((await context.ethers.provider.getNetwork()).chainId);
   if (chainId !== manifest.chainId) throw new Error(`Connected chain ${chainId} does not match manifest`);
-  const manifestImplementation = getAddress(record.implementationAddress);
+  const manifestImplementation = getAddress(recordedImplementation);
   const liveImplementation = getAddress(await context.upgrades.erc1967.getImplementationAddress(record.address));
 
   // Reconcile a prepared upgrade that was executed externally before attempting to prepare another candidate.
@@ -77,6 +83,9 @@ export async function prepareUpgradeCommand(
       throw new Error(`${options.contractName} live implementation did not execute the matching prepared upgrade`);
     }
     await writeVillageDeploymentManifest(manifestPath, manifest);
+    if (manifest.status === 'complete') {
+      await writeConsumerDescriptor(manifest, outputRootForManifest(manifestPath));
+    }
     console.log(`${options.contractName} upgrade reconciled: ${liveImplementation}`);
     return manifest;
   }
@@ -125,6 +134,8 @@ export async function prepareUpgradeCommand(
   const newImplementation = getAddress(await implementation.getAddress());
   const implementationCode = await context.ethers.provider.getCode(newImplementation);
   if (implementationCode === '0x') throw new Error('Ignition implementation deployment has no runtime code');
+  const preparedBlock = await context.ethers.provider.getBlock('latest');
+  if (!preparedBlock?.hash) throw new Error('Prepared upgrade block has no hash');
   // Close the preparation race: the validation baseline is invalid if another upgrade moved the proxy meanwhile.
   if (getAddress(await context.upgrades.erc1967.getImplementationAddress(record.address)) !== liveImplementation) {
     throw new Error(`${options.contractName} implementation changed while preparing the upgrade`);
@@ -151,6 +162,7 @@ export async function prepareUpgradeCommand(
   const ownerTransaction =
     owner.type === 'safe' ? await prepareSafeOwnerActions(owner, [ownerAction], context.provider) : undefined;
   const verification = await verifyIgnitionDeployment(context.networkName, deploymentId);
+  const candidateAbi = JSON.parse(nextFactory.interface.formatJson()) as unknown[];
   // Persist only a fully validated, deployed, bytecode-hashed, and successfully simulated candidate.
   const upgrade: ManifestUpgrade = {
     contractName: options.contractName,
@@ -165,6 +177,9 @@ export async function prepareUpgradeCommand(
     callData,
     specHash,
     implementationCodeHash: keccak256(implementationCode),
+    candidateAbi,
+    candidateAbiHash: hashContractAbi(candidateAbi),
+    preparedAtBlock: {blockNumber: String(preparedBlock.number), blockHash: preparedBlock.hash},
     ownerAction,
     ownerTransaction,
     verification,

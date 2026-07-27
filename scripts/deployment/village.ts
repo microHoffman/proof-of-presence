@@ -3,11 +3,12 @@ import path from 'node:path';
 import {getAddress, id, isAddress, keccak256, toUtf8Bytes, ZeroAddress, ZeroHash} from 'ethers';
 import type {SafeTransactionData} from '@safe-global/types-kit';
 import {z} from 'zod';
+import {canonicalJsonStringify} from './canonical-json.js';
+import {writeConsumerDescriptor} from './consumer-descriptor.js';
 import {deployVillageIgnitionGraph, isPolicyOnlyDeployment, validateSelectedImplementations} from './ignition.js';
-import {prepareSafeOwnerActions} from './safe-service.js';
+import {prepareSafeOwnerActions, proposeSafeOwnerActions} from './safe-service.js';
 
 export type DeploymentProfile = 'minimal-village' | 'token-village' | 'tokenized-stays-village' | 'tdf';
-export type OwnershipMode = 'direct' | 'deployer-handoff';
 
 export interface EoaOwnerConfig {
   type: 'eoa';
@@ -23,17 +24,12 @@ export interface SafeOwnerConfig {
 
 export type FinalOwnerConfig = EoaOwnerConfig | SafeOwnerConfig;
 
-export interface OwnershipConfig {
-  mode: OwnershipMode;
-  finalOwner: FinalOwnerConfig;
-}
-
 export interface VillageDeploymentConfig {
-  schemaVersion: 5;
+  schemaVersion: 1;
   villageSlug: string;
   chainId: number;
   deploymentProfile: DeploymentProfile;
-  ownership: OwnershipConfig;
+  finalOwner: FinalOwnerConfig;
   modules: string[];
   apiOperator: string;
   communityToken?: CommunityTokenConfig;
@@ -126,16 +122,36 @@ export interface ManualAction extends PendingOwnerAction {
   acceptAfter?: string;
 }
 
+export interface BlockReference {
+  blockNumber: string;
+  blockHash: string;
+}
+
+export interface LogReference extends BlockReference {
+  transactionHash: string;
+  transactionIndex: number;
+  logIndex: number;
+}
+
+export type RevisionEffectiveFrom =
+  {kind: 'deployment'; block: BlockReference} | {kind: 'upgrade'; event: LogReference};
+
+export interface ContractRevision {
+  implementationAddress?: string;
+  implementationRuntimeCodeHash?: string;
+  abi: unknown[];
+  abiHash: string;
+  effectiveFrom: RevisionEffectiveFrom;
+}
+
 export interface ManifestContract {
   name: string;
   deploymentName: string;
   address: string;
-  implementationAddress?: string;
   constructorArgs?: unknown[];
   initializerArgs?: unknown[];
-  abi: unknown[];
+  revisions: ContractRevision[];
   runtimeCodeHash?: string;
-  implementationRuntimeCodeHash?: string;
   authority?: 'ownerless';
 }
 
@@ -175,6 +191,10 @@ export interface ManifestUpgrade {
   callData: string;
   specHash: string;
   implementationCodeHash: string;
+  candidateAbi: unknown[];
+  candidateAbiHash: string;
+  preparedAtBlock: BlockReference;
+  executedAt?: LogReference;
   ownerAction: PendingOwnerAction;
   ownerTransaction?: PreparedSafeTransaction;
   verification?: unknown;
@@ -185,30 +205,28 @@ export interface ManifestUpgrade {
  * It summarizes configured and observed onchain state; Ignition's journal remains the source for transaction resumption.
  */
 export interface VillageDeploymentManifest {
-  schemaVersion: 5;
+  schemaVersion: 1;
   deploymentKind: 'village' | 'profile';
   villageSlug: string;
   chainId: number;
-  configSchemaVersion: 5;
+  configSchemaVersion: 1;
   configHash: string;
   sourceRevision?: string;
   network: string;
   deploymentProfile: DeploymentProfile;
   modules: NormalizedModules;
+  deploymentStart: BlockReference;
   contracts: Record<string, ManifestContract>;
   compiler: {solidity: string};
   openzeppelinVersion: string;
   ownership: {
-    mode: OwnershipMode;
     deployer: string;
-    initialOwner: string;
     finalOwner: FinalOwnerConfig;
     handoffInitiatedAt?: string;
   };
   apiOperator: string;
   roles: {initialGrants: ResolvedRoleGrant[]; apiOperatorGrants: ResolvedRoleGrant[]};
-  ownerActions: PendingOwnerAction[];
-  ownerTransaction?: PreparedSafeTransaction;
+  handoffTransaction?: PreparedSafeTransaction;
   manualActions: ManualAction[];
   verification: {attempts: unknown[]};
   deploymentTool: {
@@ -217,7 +235,7 @@ export interface VillageDeploymentManifest {
     moduleIds: string[];
     versions: Record<string, string>;
   };
-  status: 'complete' | 'pending-owner-actions';
+  status: 'complete' | 'pending-handoff';
   productAliases?: Record<string, string>;
   upgradeHistory?: ManifestUpgrade[];
 }
@@ -227,10 +245,11 @@ export interface VillageDeploymentContext {
   upgrades?: any;
   ignition?: any;
   displayIgnitionUi?: boolean;
-  safeProvider?: {request(args: {method: string; params?: readonly unknown[] | object}): Promise<unknown>};
   prepareSafeTransaction?: typeof prepareSafeOwnerActions;
+  proposeSafeTransaction?: typeof proposeSafeOwnerActions;
   networkName: string;
   projectRoot?: string;
+  ignitionRoot?: string;
   outputRoot?: string;
   manifestPathOverride?: string;
   deploymentIdOverride?: string;
@@ -240,11 +259,22 @@ export interface VillageDeploymentContext {
 export interface DeployVillageResult {
   manifest: VillageDeploymentManifest;
   manifestPath: string;
+  descriptorPath?: string;
 }
 
 const manifestAddress = z.string().refine(isAddress, 'must be a valid Ethereum address');
 const manifestHash = z.string().regex(/^0x[0-9a-fA-F]{64}$/, 'must be a 32-byte hex value');
 const manifestHex = z.string().regex(/^0x(?:[0-9a-fA-F]{2})*$/, 'must be an even-length hex value');
+const manifestBlockNumber = z.string().regex(/^\d+$/, 'must be a decimal block number');
+const manifestBlockReference = z.strictObject({
+  blockNumber: manifestBlockNumber,
+  blockHash: manifestHash,
+});
+const manifestLogReference = manifestBlockReference.extend({
+  transactionHash: manifestHash,
+  transactionIndex: z.number().int().nonnegative(),
+  logIndex: z.number().int().nonnegative(),
+});
 const manifestOwner = z.discriminatedUnion('type', [
   z.strictObject({type: z.literal('eoa'), address: manifestAddress}),
   z.strictObject({
@@ -324,12 +354,23 @@ const manifestContract = z.strictObject({
   name: z.string().min(1),
   deploymentName: z.string().min(1),
   address: manifestAddress,
-  implementationAddress: manifestAddress.optional(),
   constructorArgs: z.array(z.unknown()).optional(),
   initializerArgs: z.array(z.unknown()).optional(),
-  abi: z.array(z.unknown()),
+  revisions: z
+    .array(
+      z.strictObject({
+        implementationAddress: manifestAddress.optional(),
+        implementationRuntimeCodeHash: manifestHash.optional(),
+        abi: z.array(z.unknown()),
+        abiHash: manifestHash,
+        effectiveFrom: z.discriminatedUnion('kind', [
+          z.strictObject({kind: z.literal('deployment'), block: manifestBlockReference}),
+          z.strictObject({kind: z.literal('upgrade'), event: manifestLogReference}),
+        ]),
+      }),
+    )
+    .min(1),
   runtimeCodeHash: manifestHash.optional(),
-  implementationRuntimeCodeHash: manifestHash.optional(),
   authority: z.literal('ownerless').optional(),
 });
 const manifestRoleGrant = z.strictObject({
@@ -351,6 +392,10 @@ const manifestUpgrade = z.strictObject({
   callData: manifestHex,
   specHash: manifestHash,
   implementationCodeHash: manifestHash,
+  candidateAbi: z.array(z.unknown()),
+  candidateAbiHash: manifestHash,
+  preparedAtBlock: manifestBlockReference,
+  executedAt: manifestLogReference.optional(),
   ownerAction: manifestOwnerAction,
   ownerTransaction: manifestSafeTransaction.optional(),
   verification: z.unknown().optional(),
@@ -358,23 +403,22 @@ const manifestUpgrade = z.strictObject({
 
 /** Strict schema for persisted deployment state; Ignition remains the transaction journal. */
 export const VillageDeploymentManifestSchema = z.strictObject({
-  schemaVersion: z.literal(5),
+  schemaVersion: z.literal(1),
   deploymentKind: z.enum(['village', 'profile']),
   villageSlug: z.string().min(1),
   chainId: z.number().int().positive(),
-  configSchemaVersion: z.literal(5),
+  configSchemaVersion: z.literal(1),
   configHash: manifestHash,
   sourceRevision: z.string().min(1).optional(),
   network: z.string().min(1),
   deploymentProfile: z.enum(['minimal-village', 'token-village', 'tokenized-stays-village', 'tdf']),
   modules: manifestModules,
+  deploymentStart: manifestBlockReference,
   contracts: z.record(z.string(), manifestContract),
   compiler: z.strictObject({solidity: z.string().min(1)}),
   openzeppelinVersion: z.string().min(1),
   ownership: z.strictObject({
-    mode: z.enum(['direct', 'deployer-handoff']),
     deployer: manifestAddress,
-    initialOwner: manifestAddress,
     finalOwner: manifestOwner,
     handoffInitiatedAt: z.string().min(1).optional(),
   }),
@@ -383,8 +427,7 @@ export const VillageDeploymentManifestSchema = z.strictObject({
     initialGrants: z.array(manifestRoleGrant),
     apiOperatorGrants: z.array(manifestRoleGrant),
   }),
-  ownerActions: z.array(manifestOwnerAction),
-  ownerTransaction: manifestSafeTransaction.optional(),
+  handoffTransaction: manifestSafeTransaction.optional(),
   manualActions: z.array(manifestManualAction),
   verification: z.strictObject({attempts: z.array(z.unknown())}),
   deploymentTool: z.strictObject({
@@ -393,7 +436,7 @@ export const VillageDeploymentManifestSchema = z.strictObject({
     moduleIds: z.array(z.string().min(1)),
     versions: z.record(z.string(), z.string()),
   }),
-  status: z.enum(['complete', 'pending-owner-actions']),
+  status: z.enum(['complete', 'pending-handoff']),
   productAliases: z.record(z.string(), z.string()).optional(),
   upgradeHistory: z.array(manifestUpgrade).optional(),
 });
@@ -549,7 +592,7 @@ export function validateVillageDeploymentConfig(
   if (networkChainId !== undefined && config.chainId !== networkChainId) {
     throw new Error(`Config chainId ${config.chainId} does not match selected network chainId ${networkChainId}`);
   }
-  normalizeAddress(config.ownership.finalOwner.address, 'ownership.finalOwner.address');
+  normalizeAddress(config.finalOwner.address, 'finalOwner.address');
   normalizeAddress(config.apiOperator, 'apiOperator');
   const modules = normalizeModules(config);
   if (modules.tokenizedStays && !modules.communityToken) throw new Error('tokenizedStays requires communityToken');
@@ -684,80 +727,69 @@ export async function deployVillage(
     if (existing.configHash !== configHash) throw new Error(`Deployment manifest collision at ${manifestPath}`);
     // Reruns audit the recorded deployment against live state instead of submitting the graph again.
     const reconciled = await reconcileManifest(existing, config, context, initialRoleGrants);
-    if (context.writeManifest !== false) await writeVillageDeploymentManifest(manifestPath, reconciled);
-    return {manifest: reconciled, manifestPath};
+    let descriptorPath: string | undefined;
+    if (context.writeManifest !== false) {
+      await writeVillageDeploymentManifest(manifestPath, reconciled);
+      if (reconciled.status === 'complete' && !context.deploymentIdOverride) {
+        descriptorPath = await writeConsumerDescriptor(reconciled, context.outputRoot ?? projectRoot);
+      }
+    }
+    return {manifest: reconciled, manifestPath, descriptorPath};
   }
 
   const [deployer] = await context.ethers.getSigners();
   const deployerAddress = normalizeAddress(deployer.address, 'deployer');
-  const finalOwner = normalizeAddress(config.ownership.finalOwner.address, 'ownership.finalOwner.address');
-  if (config.ownership.mode === 'deployer-handoff' && finalOwner === deployerAddress) {
-    throw new Error('deployer-handoff final owner must differ from the deployer');
-  }
-  await validateFinalOwner(config.ownership.finalOwner, context);
-  if (config.ownership.mode === 'direct' && config.ownership.finalOwner.type === 'eoa') {
-    await requireConfiguredSigner(finalOwner, context);
-  }
-  const initialOwner = config.ownership.mode === 'direct' ? finalOwner : deployerAddress;
+  const finalOwner = normalizeAddress(config.finalOwner.address, 'finalOwner.address');
+  await validateFinalOwner(config.finalOwner, context);
 
-  // Handoff mode lets the deployer finish configuration before surrendering authority; direct mode leaves it to finalOwner.
+  // The deployer always owns the fresh graph long enough to complete address-dependent configuration.
   await validateSelectedImplementations(context, modules, deployer);
   const deployed = await deployVillageIgnitionGraph(
     config,
     context,
     modules,
-    initialOwner,
+    deployerAddress,
     initialRoleGrants,
     deployerAddress,
   );
   const contracts = deployed.contracts;
   await addCodeProvenance(context, contracts);
   await verifyImplementations(context, contracts);
-  await verifyRoles(context, contracts, initialOwner, initialRoleGrants);
+  await verifyRoles(context, contracts, deployerAddress, initialRoleGrants);
 
-  let ownerActions = buildDeploymentOwnerActions(config, modules, contracts, deployed.instances);
-  let ownerTransaction: PreparedSafeTransaction | undefined;
-  let manualActions: ManualAction[] = [];
-  let status: VillageDeploymentManifest['status'];
+  const ownerActions = await executeOwnerActions(
+    buildDeploymentOwnerActions(config, modules, contracts, deployed.instances),
+    deployer,
+    context,
+  );
+  if (ownerActions.length > 0) throw new Error('Deployer owner actions did not reach their expected state');
+  await verifyCompleteWiring(context, contracts, config);
 
-  if (config.ownership.mode === 'deployer-handoff') {
-    ownerActions = await executeOwnerActions(ownerActions, deployer, context);
-    if (ownerActions.length > 0) throw new Error('Deployer owner actions did not reach their expected state');
-    await verifyCompleteWiring(context, contracts, config);
-    manualActions = await initiateOwnershipHandoff(contracts, deployer, deployerAddress, finalOwner, context);
-    // "complete" means deployment and deployer-controlled wiring are complete; acceptance steps remain explicit manual actions.
-    status = 'complete';
-  } else {
-    ownerActions = await incompleteOwnerActions(ownerActions, context);
-    await verifyModuleWiring(context, contracts, deployed.initializedTransferPolicy, config);
-    if (config.ownership.finalOwner.type === 'safe' && ownerActions.length > 0) {
-      if (!context.safeProvider) throw new Error('Safe owner actions require an EIP-1193 provider');
-      const prepare = context.prepareSafeTransaction ?? prepareSafeOwnerActions;
-      ownerTransaction = await prepare(config.ownership.finalOwner, ownerActions, context.safeProvider);
-    }
-    status = ownerActions.length === 0 ? 'complete' : 'pending-owner-actions';
-    if (status === 'complete') await verifyCompleteWiring(context, contracts, config);
-  }
+  const manualActions =
+    finalOwner === deployerAddress
+      ? []
+      : await initiateOwnershipHandoff(contracts, deployer, deployerAddress, finalOwner, context);
+  const status: VillageDeploymentManifest['status'] = manualActions.length === 0 ? 'complete' : 'pending-handoff';
+  if (status === 'complete') await verifyFinalAuthority(contracts, finalOwner, context);
 
   const manifest: VillageDeploymentManifest = {
-    schemaVersion: 5,
+    schemaVersion: 1,
     deploymentKind: deploymentKind(config.deploymentProfile),
     villageSlug: config.villageSlug,
     chainId: config.chainId,
-    configSchemaVersion: 5,
+    configSchemaVersion: 1,
     configHash,
     sourceRevision: process.env.GITHUB_SHA ?? process.env.SOURCE_REVISION,
     network: context.networkName,
     deploymentProfile: config.deploymentProfile,
     modules,
+    deploymentStart: deployed.deploymentStart,
     contracts,
     compiler: {solidity: '0.8.35'},
     openzeppelinVersion: await readOpenZeppelinVersion(projectRoot),
     ownership: {
-      mode: config.ownership.mode,
       deployer: deployerAddress,
-      initialOwner,
-      finalOwner: {...config.ownership.finalOwner, address: finalOwner},
+      finalOwner: {...config.finalOwner, address: finalOwner},
       handoffInitiatedAt: manualActions.length > 0 ? new Date().toISOString() : undefined,
     },
     apiOperator: normalizeAddress(config.apiOperator, 'apiOperator'),
@@ -767,8 +799,6 @@ export async function deployVillage(
         ({account}) => account === normalizeAddress(config.apiOperator, 'apiOperator'),
       ),
     },
-    ownerActions,
-    ownerTransaction,
     manualActions,
     verification: {attempts: []},
     deploymentTool: {
@@ -780,32 +810,41 @@ export async function deployVillage(
     status,
     productAliases: modules.sweatToken ? {VillageSweatToken: 'ContributionToken'} : undefined,
   };
-  if (context.writeManifest !== false) await writeVillageDeploymentManifest(manifestPath, manifest);
-  return {manifest, manifestPath};
+  let descriptorPath: string | undefined;
+  if (context.writeManifest !== false) {
+    await writeVillageDeploymentManifest(manifestPath, manifest);
+    if (manifest.status === 'complete' && !context.deploymentIdOverride) {
+      descriptorPath = await writeConsumerDescriptor(manifest, context.outputRoot ?? projectRoot);
+    }
+  }
+  return {manifest, manifestPath, descriptorPath};
 }
 
-export async function buildSafeOwnerTransaction(
-  context: VillageDeploymentContext,
-  owner: FinalOwnerConfig,
-  _ownerAddress: string,
-  actions: PendingOwnerAction[],
-): Promise<PreparedSafeTransaction | undefined> {
-  if (owner.type !== 'safe' || actions.length === 0) return undefined;
-  if (!context.safeProvider) throw new Error('Safe owner actions require an EIP-1193 provider');
-  return (context.prepareSafeTransaction ?? prepareSafeOwnerActions)(owner, actions, context.safeProvider);
-}
-
-export async function reconcileOwnerActions(
+export async function reconcileOwnershipHandoff(
   manifest: VillageDeploymentManifest,
   context: VillageDeploymentContext,
 ): Promise<VillageDeploymentManifest> {
-  if (manifest.ownership.mode !== 'direct') return manifest;
-  // Receipts and Safe service status are advisory; completion is derived from each action's onchain postcondition.
-  const ownerActions = await incompleteOwnerActions(manifest.ownerActions, context);
-  const status = ownerActions.length === 0 ? 'complete' : 'pending-owner-actions';
-  let ownerTransaction = manifest.ownerTransaction;
-  if (ownerActions.length === 0) ownerTransaction = undefined;
-  return {...manifest, ownerActions, ownerTransaction, status};
+  const reconciled = structuredClone(manifest);
+  await verifyExpectedHandoffState(reconciled, context);
+  const incomplete = await pendingOwnershipHandoffActions(reconciled, context);
+  if (incomplete.length > 0) {
+    reconciled.status = 'pending-handoff';
+    return reconciled;
+  }
+  await verifyFinalAuthority(reconciled.contracts, reconciled.ownership.finalOwner.address, context);
+  reconciled.status = 'complete';
+  return reconciled;
+}
+
+export async function pendingOwnershipHandoffActions(
+  manifest: VillageDeploymentManifest,
+  context: VillageDeploymentContext,
+): Promise<ManualAction[]> {
+  const incomplete: ManualAction[] = [];
+  for (const action of manifest.manualActions) {
+    if (!(await isHandoffActionComplete(action, context))) incomplete.push(action);
+  }
+  return incomplete;
 }
 
 /** Audits recorded code, proxy slots, authority, roles, and wiring against current onchain state. */
@@ -822,26 +861,16 @@ async function reconcileManifest(
     const hash = keccak256(code);
     if (record.runtimeCodeHash && record.runtimeCodeHash !== hash) throw new Error(`${name} runtime code hash changed`);
     record.runtimeCodeHash = hash;
-    if (record.implementationAddress)
-      await verifyProxyImplementationSlot(context, record.address, record.implementationAddress);
+    const implementationAddress = currentImplementationAddress(record);
+    if (implementationAddress) {
+      await verifyProxyImplementationSlot(context, record.address, implementationAddress);
+    }
   }
-  await verifyRoles(context, reconciled.contracts, reconciled.ownership.initialOwner, initialRoleGrants, true);
-  if (reconciled.ownership.mode === 'deployer-handoff') {
-    await verifyExpectedHandoffState(reconciled, context);
-    await verifyCompleteWiring(context, reconciled.contracts, config);
-    reconciled.status = 'complete';
-    return reconciled;
-  }
-  await verifyDirectAuthority(reconciled.contracts, reconciled.ownership.finalOwner.address, context);
-  const ownerActions = await incompleteOwnerActions(reconciled.ownerActions, context);
-  reconciled.ownerActions = ownerActions;
-  reconciled.status = ownerActions.length === 0 ? 'complete' : 'pending-owner-actions';
-  if (ownerActions.length === 0) reconciled.ownerTransaction = undefined;
-  const expectedPolicy = ownerActions.some(({functionName}) => functionName === 'setTransferPolicy')
-    ? ZeroAddress
-    : (reconciled.contracts.TDFTransferPolicy?.address ?? config.communityToken?.transferPolicy ?? ZeroAddress);
-  if (ownerActions.length === 0) await verifyCompleteWiring(context, reconciled.contracts, config);
-  else await verifyModuleWiring(context, reconciled.contracts, expectedPolicy, config);
+  await verifyRoles(context, reconciled.contracts, reconciled.ownership.deployer, initialRoleGrants, true);
+  await verifyCompleteWiring(context, reconciled.contracts, config);
+  const ownership = await reconcileOwnershipHandoff(reconciled, context);
+  reconciled.status = ownership.status;
+  reconciled.handoffTransaction = ownership.handoffTransaction;
   return reconciled;
 }
 
@@ -1040,7 +1069,7 @@ async function verifyExpectedHandoffState(
   }
 }
 
-async function verifyDirectAuthority(
+async function verifyFinalAuthority(
   contracts: Record<string, ManifestContract>,
   finalOwner: string,
   context: VillageDeploymentContext,
@@ -1051,6 +1080,10 @@ async function verifyDirectAuthority(
     if (name === 'VillageAccess') {
       const access = await context.ethers.getContractAt(ACCESS_ADMIN_ABI, record.address);
       if (getAddress(await access.defaultAdmin()) !== expected) throw new Error('VillageAccess final admin changed');
+      const [pending] = await access.pendingDefaultAdmin();
+      if (getAddress(pending) !== ZeroAddress) {
+        throw new Error('VillageAccess has an unexpected pending default admin');
+      }
     } else {
       const ownable = await context.ethers.getContractAt(OWNABLE_ABI, record.address);
       if (getAddress(await ownable.owner()) !== expected) throw new Error(`${name} final owner changed`);
@@ -1081,13 +1114,6 @@ async function validateFinalOwner(owner: FinalOwnerConfig, context: VillageDeplo
   }
 }
 
-async function requireConfiguredSigner(address: string, context: VillageDeploymentContext): Promise<void> {
-  const signers = await context.ethers.getSigners();
-  if (!signers.some((signer: {address: string}) => getAddress(signer.address) === address)) {
-    throw new Error(`Direct EOA owner ${address} is not available among configured Hardhat signers`);
-  }
-}
-
 async function verifyRoles(
   context: VillageDeploymentContext,
   contracts: Record<string, ManifestContract>,
@@ -1111,8 +1137,10 @@ async function verifyImplementations(
   contracts: Record<string, ManifestContract>,
 ): Promise<void> {
   for (const record of Object.values(contracts)) {
-    if (record.implementationAddress)
-      await verifyProxyImplementationSlot(context, record.address, record.implementationAddress);
+    const implementationAddress = currentImplementationAddress(record);
+    if (implementationAddress) {
+      await verifyProxyImplementationSlot(context, record.address, implementationAddress);
+    }
   }
 }
 
@@ -1305,6 +1333,19 @@ async function isOwnerActionComplete(action: PendingOwnerAction, context: Villag
   return false;
 }
 
+async function isHandoffActionComplete(action: ManualAction, context: VillageDeploymentContext): Promise<boolean> {
+  const recipient = getAddress(action.recipient);
+  if (action.functionName === 'acceptOwnership') {
+    const target = await context.ethers.getContractAt(OWNABLE_ABI, action.to);
+    return getAddress(await target.owner()) === recipient;
+  }
+  if (action.functionName === 'acceptDefaultAdminTransfer') {
+    const target = await context.ethers.getContractAt(ACCESS_ADMIN_ABI, action.to);
+    return getAddress(await target.defaultAdmin()) === recipient;
+  }
+  throw new Error(`Unsupported handoff action ${action.contractName}.${action.functionName}`);
+}
+
 function buildOwnerAction(
   contract: any,
   to: string,
@@ -1345,21 +1386,36 @@ function normalizeAddress(value: unknown, field: string): string {
   return address;
 }
 
-/** Hashes a canonical representation so object key order cannot change deployment identity. */
-function hashDeploymentConfig(config: VillageDeploymentConfig): string {
-  return keccak256(toUtf8Bytes(stableStringify(config)));
+export function currentContractRevision(contract: ManifestContract): ContractRevision {
+  const revision = contract.revisions.at(-1);
+  if (!revision) throw new Error(`Manifest contract ${contract.name} has no ABI revision`);
+  return revision;
 }
 
-function stableStringify(value: unknown): string {
-  // Undefined object fields are omitted like JSON.stringify; array order remains significant by design.
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
-  if (value && typeof value === 'object') {
-    const entries = Object.entries(value as Record<string, unknown>)
-      .filter(([, item]) => item !== undefined)
-      .sort(([left], [right]) => left.localeCompare(right));
-    return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item)}`).join(',')}}`;
-  }
-  return JSON.stringify(value);
+export function currentImplementationAddress(contract: ManifestContract): string | undefined {
+  return currentContractRevision(contract).implementationAddress;
+}
+
+export function createInitialContractRevision(
+  abi: unknown[],
+  implementationAddress: string | undefined,
+  deploymentStart: BlockReference,
+): ContractRevision {
+  return {
+    implementationAddress,
+    abi,
+    abiHash: hashContractAbi(abi),
+    effectiveFrom: {kind: 'deployment', block: deploymentStart},
+  };
+}
+
+export function hashContractAbi(abi: unknown[]): string {
+  return keccak256(toUtf8Bytes(canonicalJsonStringify(abi)));
+}
+
+/** Hashes a canonical representation so object key order cannot change deployment identity. */
+function hashDeploymentConfig(config: VillageDeploymentConfig): string {
+  return keccak256(toUtf8Bytes(canonicalJsonStringify(config)));
 }
 
 async function readExistingManifest(manifestPath: string): Promise<VillageDeploymentManifest | undefined> {
@@ -1396,9 +1452,10 @@ async function addCodeProvenance(
 ): Promise<void> {
   for (const record of Object.values(contracts)) {
     record.runtimeCodeHash = keccak256(await context.ethers.provider.getCode(record.address));
-    if (record.implementationAddress) {
-      record.implementationRuntimeCodeHash = keccak256(
-        await context.ethers.provider.getCode(record.implementationAddress),
+    const revision = currentContractRevision(record);
+    if (revision.implementationAddress) {
+      revision.implementationRuntimeCodeHash = keccak256(
+        await context.ethers.provider.getCode(revision.implementationAddress),
       );
     }
   }

@@ -120,7 +120,7 @@ contract TokenizedStaysTest is TestBase {
         TokenizedStays.BookingInput[] memory bookings = new TokenizedStays.BookingInput[](1);
         bookings[0] = TokenizedStays.BookingInput(year, dayOfYear, 5 ether);
         vm.prank(member);
-        guardedStays.createBookingsWithPermit(bookings, 3 ether, type(uint256).max, 0, bytes32(0), bytes32(0));
+        guardedStays.createBookingsWithPermit(bookings, type(uint256).max, 0, bytes32(0), bytes32(0));
 
         assertFalse(reentrantToken.lastReentrySucceeded());
         assertEq(reentrantToken.lastReentrySelector(), ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector);
@@ -157,6 +157,56 @@ contract TokenizedStaysTest is TestBase {
         assertEq(stored.pricePerDate, 0);
         assertEq(stays.bookingCountForYear(member, bookings[0].year), 3);
         assertEq(stays.latestBookedYear(member), bookings[2].year);
+    }
+
+    function test_PreviewsExactDeficitWithoutChangingState() public {
+        vm.prank(member);
+        stays.deposit(2 ether);
+        TokenizedStays.BookingInput[] memory bookings = new TokenizedStays.BookingInput[](2);
+        bookings[0] = _bookingAt(20, 4 ether);
+        bookings[1] = _bookingAt(10, 3 ether);
+
+        TokenizedStays.BookingCreationPreview memory preview = stays.previewCreateBookings(member, bookings);
+
+        assertEq(preview.depositedBalance, 2 ether);
+        assertEq(preview.requiredLockedBalanceBefore, 0);
+        assertEq(preview.requiredLockedBalanceAfter, 7 ether);
+        assertEq(preview.depositDeficit, 5 ether);
+        assertEq(stays.depositedBalanceOf(member), 2 ether);
+        assertEq(stays.requiredLockedBalance(member), 0);
+        (bool firstExists, ) = stays.getBooking(member, bookings[0].year, bookings[0].dayOfYear);
+        (bool secondExists, ) = stays.getBooking(member, bookings[1].year, bookings[1].dayOfYear);
+        assertFalse(firstExists);
+        assertFalse(secondExists);
+    }
+
+    function test_PreviewMatchesCreationWithExistingAndDisjointExposure() public {
+        TokenizedStays.BookingInput memory existing = _bookingAt(10, 5 ether);
+        vm.prank(member);
+        stays.createBookings(_singleBooking(existing));
+
+        TokenizedStays.BookingInput[] memory bookings = new TokenizedStays.BookingInput[](2);
+        bookings[0] = _bookingAt(20, 3 ether);
+        bookings[1] = _bookingAt(500, 4 ether);
+        TokenizedStays.BookingCreationPreview memory preview = stays.previewCreateBookings(member, bookings);
+        assertEq(preview.requiredLockedBalanceBefore, 5 ether);
+        assertEq(preview.requiredLockedBalanceAfter, 8 ether);
+        assertEq(preview.depositDeficit, 3 ether);
+
+        vm.prank(member);
+        stays.createBookings(bookings);
+        assertEq(stays.requiredLockedBalance(member), preview.requiredLockedBalanceAfter);
+        assertEq(stays.depositedBalanceOf(member), preview.depositedBalance + preview.depositDeficit);
+    }
+
+    function test_PreviewRejectsConflictsWithinProposedBatch() public {
+        TokenizedStays.BookingInput memory booking = _bookingAt(10, 2 ether);
+        TokenizedStays.BookingInput[] memory duplicate = new TokenizedStays.BookingInput[](2);
+        duplicate[0] = booking;
+        duplicate[1] = booking;
+
+        vm.expectPartialRevert(TokenizedStays.BookingConflict.selector);
+        stays.previewCreateBookings(member, duplicate);
     }
 
     function test_BatchFailuresRollBackEveryBookingAndDepositChange() public {

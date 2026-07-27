@@ -95,7 +95,6 @@
     "safe:status": "tsx scripts/check-safe-transaction.ts",
     "upgrade:prepare": "tsx scripts/prepare-upgrade.ts",
     "verify:village": "tsx scripts/verify-village.ts",
-    "export:village": "tsx scripts/export-village.ts",
     "hardhat": "hardhat"
   }
 }

@@ -36,14 +36,11 @@ const finalOwner = z.discriminatedUnion('type', [eoaOwner, safeOwner]);
  * Unknown fields are rejected so removed options cannot silently look effective in a production config.
  */
 export const VillageDeploymentConfigSchema = z.strictObject({
-  schemaVersion: z.literal(5),
+  schemaVersion: z.literal(1),
   villageSlug: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
   chainId: z.number().int().positive(),
   deploymentProfile: z.enum(['minimal-village', 'token-village', 'tokenized-stays-village', 'tdf']),
-  ownership: z.strictObject({
-    mode: z.enum(['direct', 'deployer-handoff']).default('direct'),
-    finalOwner,
-  }),
+  finalOwner,
   modules: z.array(moduleName).default([]),
   apiOperator: nonZeroAddress,
   communityToken: z

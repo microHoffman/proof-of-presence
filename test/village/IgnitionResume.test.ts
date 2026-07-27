@@ -31,11 +31,11 @@ describe('Ignition HTTP-network recovery', function () {
 
     try {
       const config = {
-        schemaVersion: 5,
+        schemaVersion: 1,
         villageSlug: 'ignition-resume-test',
         chainId: 31337,
         deploymentProfile: 'token-village',
-        ownership: {mode: 'direct', finalOwner: {type: 'eoa', address: account(1)}},
+        finalOwner: {type: 'eoa', address: account(1)},
         modules: [],
         apiOperator: account(2),
         citizenNft: {baseURI: 'https://citizen.example/'},
@@ -64,6 +64,8 @@ describe('Ignition HTTP-network recovery', function () {
       expect(resumed.contracts.CommunityToken.address).to.equal(first.contracts.CommunityToken.address);
       expect(resumed.contracts.VillageCitizenNFT.address).to.equal(first.contracts.VillageCitizenNFT.address);
       expect(resumed.deploymentTool.deploymentId).to.equal(first.deploymentTool.deploymentId);
+      expect(resumed.deploymentStart).to.deep.equal(first.deploymentStart);
+      expect(resumed.deploymentStart.blockNumber).to.equal('1');
       expect(resumedConfirmations).to.equal(firstConfirmations);
       expect(firstConfirmations).to.be.greaterThan(0);
     } finally {

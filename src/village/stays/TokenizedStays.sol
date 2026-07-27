@@ -98,6 +98,14 @@ contract TokenizedStays is
         uint16 maximumBookingYear;
     }
 
+    /// @notice Side-effect-free balance result for a proposed booking batch.
+    struct BookingCreationPreview {
+        uint256 depositedBalance;
+        uint256 requiredLockedBalanceBefore;
+        uint256 requiredLockedBalanceAfter;
+        uint256 depositDeficit;
+    }
+
     struct BatchAccumulator {
         uint32 today;
         uint16 currentYear;
@@ -196,6 +204,7 @@ contract TokenizedStays is
     error InvalidPricePerDate(uint256 pricePerDate);
     error InvalidBookingPage(uint16 startDayOfYear, uint16 limit);
     error EmptyBookingBatch();
+    error NoBookingDepositDeficit();
     error WithdrawalAmountExceedsUnlockedBalance(uint256 requested, uint256 available);
     error RecoveryAmountExceedsOrphanedTokenBalance(uint256 requested, uint256 available);
     error InvalidRecoveryRecipient(address recipient);
@@ -307,27 +316,31 @@ contract TokenizedStays is
         _createBookings(_msgSender(), bookings);
     }
 
-    /// @notice Creates bookings after obtaining an EIP-2612 allowance for any resulting balance deficit.
-    /// @dev `permitAmount` may exceed the actual deficit, in which case the unused allowance remains. If it is smaller
-    /// than the deficit, the token transfer reverts and the permit and booking writes roll back atomically.
+    /// @notice Creates bookings after obtaining an exact EIP-2612 allowance for the resulting balance deficit.
+    /// @dev Booking changes are staged before the live deficit is known. A failed or stale permit rolls the complete
+    /// transaction back atomically. Use `createBookings` when no additional deposit is required.
     /// @param bookings Dates and per-date prices to store.
-    /// @param permitAmount Allowance granted to this contract by the permit.
     /// @param deadline Last timestamp at which the permit signature is valid.
     /// @param v ECDSA signature recovery byte.
     /// @param r ECDSA signature R component.
     /// @param s ECDSA signature S component.
     function createBookingsWithPermit(
         BookingInput[] calldata bookings,
-        uint256 permitAmount,
         uint256 deadline,
         uint8 v,
         bytes32 r,
         bytes32 s
     ) external nonReentrant whenNotPaused {
-        // The function-level transient guard rejects token callbacks before any booking or deposit accounting is changed.
+        TokenizedStaysStorage storage $ = _getTokenizedStaysStorage();
+        uint256 required = _storeBookings($, _msgSender(), bookings);
+        uint256 deposited = $.depositedBalances[_msgSender()];
+        if (required <= deposited) revert NoBookingDepositDeficit();
+        uint256 depositDeficit = required - deposited;
+
+        // The function-level transient guard rejects token callbacks before they can make reentrant accounting changes.
         // wake-disable-next-line reentrancy
-        IERC20Permit(address(communityToken())).permit(_msgSender(), address(this), permitAmount, deadline, v, r, s);
-        _createBookings(_msgSender(), bookings);
+        IERC20Permit(address(communityToken())).permit(_msgSender(), address(this), depositDeficit, deadline, v, r, s);
+        _reconcileBookingBalance($, _msgSender(), required);
     }
 
     /// @notice Cancels the caller's specified future bookings and recalculates its locked balance once.
@@ -455,6 +468,33 @@ contract TokenizedStays is
         state.unlockedBalance = state.depositedBalance - state.lockedBalance;
         state.latestBookedYear = $.latestBookedYears[account];
         state.maximumBookingYear = currentMaximumBookingYear();
+    }
+
+    /// @notice Validates a proposed batch and returns its exact booking-deposit effect without changing state.
+    /// @dev The scan is limited to the union of the proposed 365-day lock intervals. Existing exposure outside those
+    /// intervals cannot increase, so the current required balance remains the lower bound.
+    /// @param account Account whose existing bookings and deposit are used.
+    /// @param bookings Dates and per-date prices to preview.
+    /// @return preview Current deposit and required-balance values before and after the proposed batch.
+    function previewCreateBookings(
+        address account,
+        BookingInput[] calldata bookings
+    ) external view returns (BookingCreationPreview memory preview) {
+        TokenizedStaysStorage storage $ = _getTokenizedStaysStorage();
+        (uint32[] memory dayIds, uint256[] memory prices) = _validatedSortedBookingBatch($, account, bookings);
+
+        preview.depositedBalance = $.depositedBalances[account];
+        preview.requiredLockedBalanceBefore = requiredLockedBalance(account);
+        preview.requiredLockedBalanceAfter = _requiredBalanceWithProposals(
+            $,
+            account,
+            dayIds,
+            prices,
+            preview.requiredLockedBalanceBefore
+        );
+        if (preview.requiredLockedBalanceAfter > preview.depositedBalance) {
+            preview.depositDeficit = preview.requiredLockedBalanceAfter - preview.depositedBalance;
+        }
     }
 
     /// @notice Recomputes the account's net and maximum-prefix exposure deltas for a calendar year.
@@ -655,8 +695,17 @@ contract TokenizedStays is
     function _authorizeUpgrade(address) internal override onlyOwner {}
 
     function _createBookings(address account, BookingInput[] calldata bookings) internal {
-        if (bookings.length == 0) revert EmptyBookingBatch();
         TokenizedStaysStorage storage $ = _getTokenizedStaysStorage();
+        uint256 required = _storeBookings($, account, bookings);
+        _reconcileBookingBalance($, account, required);
+    }
+
+    function _storeBookings(
+        TokenizedStaysStorage storage $,
+        address account,
+        BookingInput[] calldata bookings
+    ) internal returns (uint256 required) {
+        if (bookings.length == 0) revert EmptyBookingBatch();
         BatchAccumulator memory accumulator = BatchAccumulator({
             today: currentDayId(),
             currentYear: _currentYear(),
@@ -677,7 +726,7 @@ contract TokenizedStays is
         _applyBookingCountDeltas($, account, accumulator.currentYear, countDeltas, accumulator.countMask);
         $.latestBookedYears[account] = accumulator.latestBookedYear;
         _refreshYearSummaries($, account, accumulator.currentYear, accumulator.summaryMask);
-        _reconcileBookingBalance($, account);
+        required = requiredLockedBalance(account);
     }
 
     function _cancelBookings(address account, DateInput[] calldata dates) internal {
@@ -714,13 +763,7 @@ contract TokenizedStays is
         int256[] memory countDeltas,
         BatchAccumulator memory accumulator
     ) internal {
-        if (booking.pricePerDate > MAX_PRICE_PER_DATE) revert InvalidPricePerDate(booking.pricePerDate);
-        uint32 dayId = _toDayId(booking.year, booking.dayOfYear);
-        if (dayId < accumulator.today) revert BookingDateInPast(booking.year, booking.dayOfYear);
-        if (booking.year > accumulator.maximumYear) {
-            revert BookingBeyondHorizon(booking.year, accumulator.maximumYear);
-        }
-        if ($.bookingPricePlusOne[account][dayId] != 0) revert BookingConflict(booking.year, booking.dayOfYear);
+        uint32 dayId = _validateBookingInput($, account, booking, accumulator.today, accumulator.maximumYear);
 
         // Plus-one encoding preserves the distinction between a valid zero-price booking and an empty slot.
         $.bookingPricePlusOne[account][dayId] = booking.pricePerDate + 1;
@@ -833,8 +876,7 @@ contract TokenizedStays is
         summary = YearSummary(totalDelta, maxPrefix);
     }
 
-    function _reconcileBookingBalance(TokenizedStaysStorage storage $, address account) internal {
-        uint256 required = requiredLockedBalance(account);
+    function _reconcileBookingBalance(TokenizedStaysStorage storage $, address account, uint256 required) internal {
         uint256 deposited = $.depositedBalances[account];
         uint256 amountDeposited = 0;
         if (required > deposited) {
@@ -846,6 +888,129 @@ contract TokenizedStays is
             deposited = required;
         }
         emit BookingBalanceReconciled(account, required, deposited, amountDeposited);
+    }
+
+    function _validatedSortedBookingBatch(
+        TokenizedStaysStorage storage $,
+        address account,
+        BookingInput[] calldata bookings
+    ) internal view returns (uint32[] memory dayIds, uint256[] memory prices) {
+        uint256 length = bookings.length;
+        if (length == 0) revert EmptyBookingBatch();
+        dayIds = new uint32[](length);
+        prices = new uint256[](length);
+        uint32 today = currentDayId();
+        uint16 maximumYear = currentMaximumBookingYear();
+
+        for (uint256 i = 0; i < length; ) {
+            uint32 dayId = _validateBookingInput($, account, bookings[i], today, maximumYear);
+            uint256 price = bookings[i].pricePerDate;
+            uint256 insertAt = i;
+            while (insertAt > 0 && dayIds[insertAt - 1] > dayId) {
+                dayIds[insertAt] = dayIds[insertAt - 1];
+                prices[insertAt] = prices[insertAt - 1];
+                unchecked {
+                    --insertAt;
+                }
+            }
+            if (insertAt > 0 && dayIds[insertAt - 1] == dayId) {
+                revert BookingConflict(bookings[i].year, bookings[i].dayOfYear);
+            }
+            dayIds[insertAt] = dayId;
+            prices[insertAt] = price;
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
+    function _validateBookingInput(
+        TokenizedStaysStorage storage $,
+        address account,
+        BookingInput calldata booking,
+        uint32 today,
+        uint16 maximumYear
+    ) internal view returns (uint32 dayId) {
+        if (booking.pricePerDate > MAX_PRICE_PER_DATE) revert InvalidPricePerDate(booking.pricePerDate);
+        dayId = _toDayId(booking.year, booking.dayOfYear);
+        if (dayId < today) revert BookingDateInPast(booking.year, booking.dayOfYear);
+        if (booking.year > maximumYear) revert BookingBeyondHorizon(booking.year, maximumYear);
+        if ($.bookingPricePlusOne[account][dayId] != 0) revert BookingConflict(booking.year, booking.dayOfYear);
+    }
+
+    function _requiredBalanceWithProposals(
+        TokenizedStaysStorage storage $,
+        address account,
+        uint32[] memory dayIds,
+        uint256[] memory prices,
+        uint256 requiredBefore
+    ) internal view returns (uint256 requiredAfter) {
+        requiredAfter = requiredBefore;
+        uint256 first = 0;
+        while (first < dayIds.length) {
+            uint32 rangeStart = dayIds[first];
+            uint32 rangeEnd = rangeStart + LOCK_DAYS - 1;
+            uint256 afterRange = first + 1;
+            while (afterRange < dayIds.length && dayIds[afterRange] <= rangeEnd + 1) {
+                rangeEnd = dayIds[afterRange] + LOCK_DAYS - 1;
+                unchecked {
+                    ++afterRange;
+                }
+            }
+            uint256 rangeMaximum = _scanProposalRange(
+                $,
+                account,
+                dayIds,
+                prices,
+                first,
+                afterRange,
+                rangeStart,
+                rangeEnd
+            );
+            if (rangeMaximum > requiredAfter) requiredAfter = rangeMaximum;
+            first = afterRange;
+        }
+    }
+
+    function _scanProposalRange(
+        TokenizedStaysStorage storage $,
+        address account,
+        uint32[] memory dayIds,
+        uint256[] memory prices,
+        uint256 first,
+        uint256 afterRange,
+        uint32 rangeStart,
+        uint32 rangeEnd
+    ) internal view returns (uint256 maximum) {
+        mapping(uint32 => uint256) storage bookingPrices = $.bookingPricePlusOne[account];
+        int256 existingExposure = TokenizedStaysExposure.activeExposure(bookingPrices, rangeStart, LOCK_DAYS);
+        int256 proposedExposure = 0;
+        uint256 starting = first;
+        uint256 expiring = first;
+
+        for (uint32 dayId = rangeStart; ; ) {
+            if (dayId != rangeStart) {
+                existingExposure += TokenizedStaysExposure.dailyDelta(bookingPrices, dayId, LOCK_DAYS);
+            }
+            while (expiring < afterRange && dayIds[expiring] + LOCK_DAYS == dayId) {
+                proposedExposure -= int256(prices[expiring]);
+                unchecked {
+                    ++expiring;
+                }
+            }
+            while (starting < afterRange && dayIds[starting] == dayId) {
+                proposedExposure += int256(prices[starting]);
+                unchecked {
+                    ++starting;
+                }
+            }
+            uint256 combined = uint256(existingExposure + proposedExposure);
+            if (combined > maximum) maximum = combined;
+            if (dayId == rangeEnd) break;
+            unchecked {
+                ++dayId;
+            }
+        }
     }
 
     function _depositFor(address account, uint256 amount) internal {

@@ -2,32 +2,33 @@
 
 ## Consumer boundary
 
-Downstream API and UI code should consume a derived export, not Ignition state and not hand-maintained addresses. Build
-one from a reconciled deployment manifest:
+The API and UI consume the same immutable descriptor written automatically after a deployment or upgrade has been
+fully reconciled. They do not read Ignition state, the operator manifest, build artifacts, or hand-maintained address
+and ABI files.
 
-```sh
-yarn export:village -- --manifest <manifest.json> --out <export.json>
-```
+Descriptor paths are:
 
-The export uses schema version `3` and contains:
+- `export/villages/<chainId>/<villageSlug>/<revision>.json`
+- `export/profiles/<deploymentProfile>/<chainId>/<villageSlug>/<revision>.json`
 
-- `deploymentKind`, `deploymentProfile`, village slug, chain ID, and network;
-- proxy/plain-contract addresses and implementation addresses where applicable;
-- the ABI for each contract;
-- display-only product aliases.
+The schema-1 descriptor contains:
 
-The deployment manifest remains the operator source of truth for ownership, roles, pending actions, verification,
-runtime code hashes, upgrades, config hash, and Ignition provenance.
+- deployment kind/profile, village slug, chain ID, network, config hash, and selected modules;
+- the exact earliest successful deployment block and block hash;
+- each proxy/plain-contract address and deployment name;
+- every implementation revision's address, ABI, and ABI hash, with the initial revision effective from
+  `deploymentStart` and every later revision tied to an exact `Upgraded` event;
+- display-only product aliases;
+- a deterministic content-hash `revision`.
 
-Consumers must:
+Consumers must reject any schema other than `1`, require the connected chain ID to match, use proxy addresses for
+upgradeable contracts, and pin an explicitly reviewed descriptor path and `revision`. The deployment tool creates a
+descriptor only after live authority reconciliation succeeds, so consumers need no ownership-status polling. A
+later upgrade creates a new descriptor file; it never modifies a previously activated revision.
 
-- reject unsupported `schemaVersion` values;
-- require the connected chain ID to equal the export's `chainId`;
-- use proxy addresses for upgradeable contracts;
-- key deployments by chain, village/profile, and immutable manifest history;
-- activate direct-owner deployments only after `status` is `complete`;
-- independently confirm deployer-handoff acceptances before activation;
-- never infer a schema or deployment kind from an address or ABI.
+The UI normally needs the proxy address and latest contract revision. The API/indexer retains every revision and
+selects the ABI by its activation boundary when decoding historical logs. The descriptor itself is the direct
+API/UI input; no second generated or copied ABI file is required.
 
 ## Contract clients
 
@@ -37,72 +38,80 @@ Use separate clients for `VillageAccess`, `VillageCitizenNFT`, `CommunityToken`,
 
 VillageCitizenNFT holder discovery is a fixed-block snapshot: read `totalSupply()`, enumerate `tokenByIndex(i)`, and
 resolve each `ownerOf(tokenId)`, preferably through multicall. Enumeration order changes after burns, so an index must
-never be persisted as token identity. `tokenIdOf(wallet)` returns zero and `citizenshipInfo(wallet)` returns an all-zero
-struct when the wallet has no live credential. `locked(tokenId)` is true only for a live token and reverts after burn.
-Do not expose transfer or approval controls.
+never be persisted as token identity. `tokenIdOf(wallet)` returns zero and `citizenshipInfo(wallet)` returns an
+all-zero struct when the wallet has no live credential. `locked(tokenId)` is true only for a live token and reverts
+after burn. Do not expose transfer or approval controls.
 
 Treat `subjectRef` as an opaque correlation handle generated from a cryptographically secure random source. Never put
-personal data, user identifiers, hashes of identifiers, or ciphertext into it. References are not secrets, appear in
-events, and can never be reused. Suspension and revocation both remove the live credential; reapproval requires a new
-issuance with a fresh token ID and reference. Lost-wallet recovery is one atomic operator transaction.
+personal data, user identifiers, hashes of identifiers, or ciphertext into it. References are public and permanently
+single-use. Suspension and revocation both remove the live credential; reapproval requires a fresh token ID and
+reference. Lost-wallet recovery is one atomic operator transaction.
 
-The sale intentionally exposes two compact aggregate reads instead of one getter per stored field:
+The sale exposes two aggregate reads:
 
 - `saleConfiguration()` returns token, quote token, curve, treasury, fee, and fixed launch limits.
 - `saleStatus()` returns live total supply, token maximum, effective cap, and remaining capacity.
 
-Use `currentPrice()` for display and `quotePurchase(amount)` for execution preparation. A quote returns total payment,
-inclusive Closer fee, village proceeds, post-purchase price, and the supply used for the quote. The Closer fee is
-`floor(totalPayment * closerFeeBps / 10_000)` and is deducted from the curve cost. For example, a 5% fee on a
-100-unit curve cost routes 5 units to Closer and 95 to the village.
+Use `currentPrice()` for display and `quotePurchase(amount)` for execution preparation. Before
+`buy(amount, recipient, maxPayment, deadline)`, approve the DynamicPriceSale for the exact intended quote-token amount.
+Use a short deadline and user-approved `maxPayment`; invalidate cached quotes when supply or the bonding curve changes.
+The caller is always the payer, while `recipient` receives the CommunityToken. Do not implicitly create an unlimited
+approval.
 
-Before `buy(amount, recipient, maxPayment, deadline)`, the caller must approve the DynamicPriceSale to spend enough
-of the quote token. The caller is always the payer; `recipient` only chooses who receives newly minted
-CommunityToken. There is no `buyFrom` or relayed payer authorization. Use a short deadline and a user-approved
-`maxPayment`; after any `BondingCurveChanged` event, invalidate cached quotes. A supply-changing mint or burn can also
-change the price between quote and execution, in which case `maxPayment` provides the intended protection.
-For TDF, burns remain price-affecting but the transfer policy rejects any burn that would leave less than the
-5,381 TDF operating supply needed by the complete configured purchase range.
+Presence and Sweat are non-transferable. Their `totalSupply()` derives readable balances across holders, so consumers
+should prefer indexed/reconciled views to frequent polling and distinguish raw issued value from currently decayed
+balance.
 
-Supported quote tokens are ordinary non-rebasing, non-fee-on-transfer ERC-20s. A failed quote-token transfer or token
-mint rolls the whole purchase back. Do not treat the TDF curve's 200,000-token mathematical boundary as available
-supply: read `saleStatus()` and CommunityToken `maxSupply()` instead.
+## Booking and deposit integration
 
 Booking inputs are `{year, dayOfYear, pricePerDate}`. TokenizedStays records entitlement and deposit state only;
 inventory, room assignment, confirmation, check-in, and other product workflow states remain off-chain. Zero-price
-dates are valid entitlements and must not be treated as missing.
+dates are valid entitlements.
 
-For TokenizedStays CommunityToken deposits, prefer an exact, short-lived EIP-2612 permit. An exact `approve` is the
-compatibility fallback. DynamicPriceSale uses quote-token `approve` plus `buy`; it does not combine permit execution
-with a purchase. Do not create an unlimited approval implicitly.
+Deposit reads are already supported:
 
-Presence and Sweat are non-transferable. Their `totalSupply()` derives readable balances across holders, so consumers
-should avoid frequent polling and prefer indexed/reconciled views.
+- `depositedBalanceOf(account)` returns the account's total credited deposit, including the portion currently locked.
+- `getDepositState(account)` returns the credited deposit, current required locked amount, currently withdrawable
+  amount, cached latest booking year, and current maximum booking year.
+- `previewCreateBookings(account, bookings)` validates the proposed batch and returns `depositedBalance`,
+  `requiredLockedBalanceBefore`, `requiredLockedBalanceAfter`, and `depositDeficit`.
+
+The exact required top-up is:
+
+```text
+depositDeficit = max(requiredLockedBalanceAfter - depositedBalance, 0)
+```
+
+It is not the booking batch's total price, the account's total deposit, or the resulting locked balance.
+
+For the allowance flow:
+
+1. Call `previewCreateBookings` immediately before authorization.
+2. If `depositDeficit` is zero, call `createBookings` without approval.
+3. Otherwise replace the TokenizedStays allowance with exactly `depositDeficit`; do not add it to an old allowance.
+4. Re-run the preview after approval, because another transaction may have changed deposits or bookings.
+5. Submit `createBookings`. The contract calculates the live deficit and transfers only that amount.
+
+For the EIP-2612 flow, sign exactly the previewed nonzero deficit with a short deadline, then call
+`createBookingsWithPermit(bookings, deadline, v, r, s)`. The function deliberately has no caller-supplied permit
+amount: it recalculates the live deficit and uses that value in `permit`. If the state changed after signing, the
+signature no longer matches and the complete booking transaction reverts atomically. A zero-deficit batch uses
+`createBookings`, not the permit entry point.
+
+The API should return the contract preview to the UI instead of independently recreating locking arithmetic. The UI
+may display it but must refresh it around wallet authorization. Any residual allowance from a replaced/dropped flow
+should be visible and revocable.
 
 ## Event and upgrade handling
 
-Index events using `(chainId, contract, transactionHash, logIndex)`, with chain finality and reorg rollback. Relevant
-TokenizedStays events include booking creation/cancellation/pruning, deposit/withdrawal, balance reconciliation, and
-orphan recovery.
-Citizenship history comes from `CitizenshipIssued`, `CitizenshipOperatorBurned`, `CitizenshipSelfBurned`, and
-`CitizenshipRecovered` together with ERC-721 `Transfer`. Index `Locked` for ERC-5192 consumers and refresh live token
-metadata after `BatchMetadataUpdate`; there is no `Unlocked` lifecycle.
+Index events using `(chainId, contract, transactionHash, logIndex)`, with chain finality and reorg rollback. Start from
+the descriptor's `deploymentStart`. For each log, choose the last contract revision whose deployment block or
+`Upgraded` event is at or before the log's exact block/transaction/log position.
 
-Keep immutable manifest history across upgrades. The proxy address stays stable; the implementation address and
-effective ABI revision are auditable through `upgradeHistory` and the chain's ERC-1967 slot. An API operator role
-must never be treated as upgrade authority.
+Relevant TokenizedStays events include booking creation/cancellation/pruning, deposit/withdrawal, balance
+reconciliation, and orphan recovery. Citizenship history comes from `CitizenshipIssued`,
+`CitizenshipOperatorBurned`, `CitizenshipSelfBurned`, and `CitizenshipRecovered` together with ERC-721 `Transfer`.
+Index `Locked` for ERC-5192 consumers and refresh live token metadata after `BatchMetadataUpdate`.
 
-## Deployment automation
-
-An automated deployment worker should:
-
-1. generate and validate schema-5 config;
-2. use a clean immutable source revision;
-3. invoke the supported deployment wrapper with a dedicated deployer;
-4. persist the stable Ignition deployment ID and logs;
-5. resume after interruption instead of creating a second deployment;
-6. use a separate Safe proposer credential for owner actions;
-7. reconcile on-chain state before publishing the manifest/export;
-8. retain journals and manifests in durable storage.
-
-Private keys must never be accepted from browser or HTTP deployment input.
+The proxy address stays stable across upgrades. Never use only the latest ABI to decode all history, and never treat
+an API operator role as upgrade authority.

@@ -6,12 +6,7 @@ import type {ProposeTransactionProps, SafeApiKitConfig} from '@safe-global/api-k
 import type {SafeConfig} from '@safe-global/protocol-kit';
 import type {MetaTransactionData, SafeTransactionData} from '@safe-global/types-kit';
 import {getAddress} from 'ethers';
-import type {
-  PendingOwnerAction,
-  PreparedSafeTransaction,
-  SafeOwnerConfig,
-  VillageDeploymentManifest,
-} from './village.js';
+import type {PendingOwnerAction, PreparedSafeTransaction, SafeOwnerConfig} from './village.js';
 
 interface SafeServiceTransaction {
   safe: string;
@@ -90,14 +85,10 @@ export async function prepareSafeOwnerActions(
 
 /** Proposes, but never executes, an already prepared Safe owner-action transaction. */
 export async function proposeSafeOwnerActions(
-  manifest: VillageDeploymentManifest,
+  chainId: number,
+  prepared: PreparedSafeTransaction,
   options: SafeProposalOptions,
-): Promise<VillageDeploymentManifest> {
-  const prepared = manifest.ownerTransaction;
-  if (!prepared || manifest.ownerActions.length === 0) {
-    throw new Error('Manifest has no pending Safe owner-action transaction to propose');
-  }
-
+): Promise<PreparedSafeTransaction> {
   const safeAddress = getAddress(prepared.safeAddress);
   const protocolKit = await Safe.init({provider: options.provider, signer: options.signer, safeAddress});
   const safeTransaction = new EthSafeTransaction(prepared.data);
@@ -107,7 +98,7 @@ export async function proposeSafeOwnerActions(
   }
 
   const apiKit = new SafeApiKit({
-    chainId: BigInt(manifest.chainId),
+    chainId: BigInt(chainId),
     apiKey: options.apiKey,
     txServiceUrl: options.txServiceUrl,
   });
@@ -116,7 +107,7 @@ export async function proposeSafeOwnerActions(
     const existing = await apiKit.getTransaction(prepared.safeTxHash);
     const confirmations = await apiKit.getTransactionConfirmations(prepared.safeTxHash);
     return withServiceStatus(
-      withProposal(manifest, {
+      withProposal(prepared, {
         status: 'already-submitted',
         submittedAt: new Date().toISOString(),
         txServiceUrl: options.txServiceUrl,
@@ -145,7 +136,7 @@ export async function proposeSafeOwnerActions(
     origin: options.origin,
   });
 
-  const proposed = withProposal(manifest, {
+  const proposed = withProposal(prepared, {
     status: 'submitted',
     senderAddress: normalizedSender,
     submittedAt: new Date().toISOString(),
@@ -169,43 +160,37 @@ export async function proposeSafeOwnerActions(
  * Callers must still reconcile action postconditions onchain before marking the deployment complete.
  */
 export async function refreshSafeOwnerActionsStatus(
-  manifest: VillageDeploymentManifest,
+  chainId: number,
+  prepared: PreparedSafeTransaction,
   options: SafeServiceOptions,
-): Promise<VillageDeploymentManifest> {
-  const prepared = manifest.ownerTransaction;
-  if (!prepared) throw new Error('Manifest has no prepared Safe owner-action transaction');
+): Promise<PreparedSafeTransaction> {
   const apiKit =
     options.client ??
     new SafeApiKit({
-      chainId: BigInt(manifest.chainId),
+      chainId: BigInt(chainId),
       apiKey: options.apiKey,
       txServiceUrl: options.txServiceUrl,
     });
   return withServiceStatus(
-    manifest,
+    prepared,
     await apiKit.getTransaction(prepared.safeTxHash),
     await apiKit.getTransactionConfirmations(prepared.safeTxHash),
   );
 }
 
 function withProposal(
-  manifest: VillageDeploymentManifest,
+  prepared: PreparedSafeTransaction,
   proposal: NonNullable<PreparedSafeTransaction['proposal']>,
-): VillageDeploymentManifest {
-  return {
-    ...manifest,
-    ownerTransaction: manifest.ownerTransaction ? {...manifest.ownerTransaction, proposal} : undefined,
-  };
+): PreparedSafeTransaction {
+  return {...prepared, proposal};
 }
 
 /** Validates the service response belongs to the prepared transaction before attaching its advisory status. */
 function withServiceStatus(
-  manifest: VillageDeploymentManifest,
+  prepared: PreparedSafeTransaction,
   transaction: SafeServiceTransaction,
   confirmations: SafeServiceConfirmations,
-): VillageDeploymentManifest {
-  const prepared = manifest.ownerTransaction;
-  if (!prepared) throw new Error('Manifest has no prepared Safe owner-action transaction');
+): PreparedSafeTransaction {
   if (transaction.safeTxHash.toLowerCase() !== prepared.safeTxHash.toLowerCase()) {
     throw new Error(`Safe Transaction Service returned an unexpected transaction hash ${transaction.safeTxHash}`);
   }
@@ -224,19 +209,16 @@ function withServiceStatus(
       : 'awaiting-confirmations';
 
   return {
-    ...manifest,
-    ownerTransaction: {
-      ...prepared,
-      serviceStatus: {
-        status,
-        checkedAt: new Date().toISOString(),
-        confirmationsSubmitted,
-        confirmationsRequired: transaction.confirmationsRequired,
-        isExecuted: transaction.isExecuted,
-        isSuccessful,
-        executionTransactionHash: transaction.transactionHash ?? undefined,
-        executionDate: transaction.executionDate ?? undefined,
-      },
+    ...prepared,
+    serviceStatus: {
+      status,
+      checkedAt: new Date().toISOString(),
+      confirmationsSubmitted,
+      confirmationsRequired: transaction.confirmationsRequired,
+      isExecuted: transaction.isExecuted,
+      isSuccessful,
+      executionTransactionHash: transaction.transactionHash ?? undefined,
+      executionDate: transaction.executionDate ?? undefined,
     },
   };
 }

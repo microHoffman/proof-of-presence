@@ -112,9 +112,7 @@ describe('TokenizedStays permit integration', function () {
     const deadline = BigInt(latest!.timestamp + 3_600);
     const signature = await signPermit(token, member, member.address, await stays.getAddress(), deficit, deadline);
 
-    await stays
-      .connect(member)
-      .createBookingsWithPermit([booking], deficit, deadline, signature.v, signature.r, signature.s);
+    await stays.connect(member).createBookingsWithPermit([booking], deadline, signature.v, signature.r, signature.s);
 
     expect(await stays.depositedBalanceOf(member.address)).to.equal(price);
     expect(await stays.requiredLockedBalance(member.address)).to.equal(price);
@@ -134,7 +132,7 @@ describe('TokenizedStays permit integration', function () {
     const initialPermit = await signPermit(token, member, member.address, await stays.getAddress(), amount, deadline);
     await stays
       .connect(member)
-      .createBookingsWithPermit([booking], amount, deadline, initialPermit.v, initialPermit.r, initialPermit.s);
+      .createBookingsWithPermit([booking], deadline, initialPermit.v, initialPermit.r, initialPermit.s);
 
     const nonceBefore = await token.nonces(member.address);
     const memberBalanceBefore = await token.balanceOf(member.address);
@@ -143,7 +141,7 @@ describe('TokenizedStays permit integration', function () {
     await expect(
       stays
         .connect(member)
-        .createBookingsWithPermit([booking], amount, deadline, duplicatePermit.v, duplicatePermit.r, duplicatePermit.s),
+        .createBookingsWithPermit([booking], deadline, duplicatePermit.v, duplicatePermit.r, duplicatePermit.s),
     ).to.be.revertedWithCustomError(stays, 'BookingConflict');
 
     expect(await stays.depositedBalanceOf(member.address)).to.equal(amount);
@@ -155,5 +153,57 @@ describe('TokenizedStays permit integration', function () {
     expect(await token.allowance(member.address, await stays.getAddress())).to.equal(0n);
     expect(await token.balanceOf(member.address)).to.equal(memberBalanceBefore);
     expect(await token.balanceOf(await stays.getAddress())).to.equal(staysBalanceBefore);
+  });
+
+  it('rejects permit booking when the existing deposit already covers the live exposure', async function () {
+    const {member, token, stays} = await setup();
+    const amount = parseEther('2');
+    await token.connect(member).approve(await stays.getAddress(), amount);
+    await stays.connect(member).deposit(amount);
+    const booking = await futureBooking(stays, 30, amount);
+    const latest = await ethers.provider.getBlock('latest');
+    const deadline = BigInt(latest!.timestamp + 3_600);
+    const signature = await signPermit(token, member, member.address, await stays.getAddress(), 0n, deadline);
+
+    await expect(
+      stays.connect(member).createBookingsWithPermit([booking], deadline, signature.v, signature.r, signature.s),
+    ).to.be.revertedWithCustomError(stays, 'NoBookingDepositDeficit');
+    expect(await token.nonces(member.address)).to.equal(0n);
+    const [exists] = await stays.getBooking(member.address, booking.year, booking.dayOfYear);
+    expect(exists).to.equal(false);
+  });
+
+  it('atomically rejects a permit whose signed deficit became stale', async function () {
+    const {member, token, stays} = await setup();
+    const price = parseEther('5');
+    const signedDeficit = parseEther('3');
+    const booking = await futureBooking(stays, 30, price);
+
+    await token.connect(member).approve(await stays.getAddress(), parseEther('2'));
+    await stays.connect(member).deposit(parseEther('2'));
+    const latest = await ethers.provider.getBlock('latest');
+    const deadline = BigInt(latest!.timestamp + 3_600);
+    const signature = await signPermit(
+      token,
+      member,
+      member.address,
+      await stays.getAddress(),
+      signedDeficit,
+      deadline,
+    );
+
+    // A later deposit lowers the live deficit from three tokens to two, making the exact permit stale.
+    await token.connect(member).approve(await stays.getAddress(), parseEther('1'));
+    await stays.connect(member).deposit(parseEther('1'));
+    const nonceBefore = await token.nonces(member.address);
+
+    await expect(
+      stays.connect(member).createBookingsWithPermit([booking], deadline, signature.v, signature.r, signature.s),
+    ).to.be.revertedWithCustomError(token, 'ERC2612InvalidSigner');
+
+    expect(await token.nonces(member.address)).to.equal(nonceBefore);
+    expect(await stays.depositedBalanceOf(member.address)).to.equal(parseEther('3'));
+    const [exists] = await stays.getBooking(member.address, booking.year, booking.dayOfYear);
+    expect(exists).to.equal(false);
   });
 });

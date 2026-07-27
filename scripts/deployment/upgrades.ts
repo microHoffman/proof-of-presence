@@ -1,11 +1,21 @@
-import {getAddress, keccak256} from 'ethers';
-import type {ManifestContract, ManifestUpgrade} from './village.js';
+import {getAddress, id, keccak256, zeroPadValue} from 'ethers';
+import {currentContractRevision, type LogReference, type ManifestContract, type ManifestUpgrade} from './village.js';
 
 export const ERC1967_IMPLEMENTATION_SLOT = '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc';
 
 interface UpgradeProvider {
   getStorage(address: string, slot: string): Promise<string>;
   getCode(address: string): Promise<string>;
+  getLogs(filter: {address: string; fromBlock: bigint; topics: [string, string]}): Promise<
+    Array<{
+      blockNumber: number;
+      blockHash: string;
+      transactionHash: string;
+      transactionIndex: number;
+      index?: number;
+      logIndex?: number;
+    }>
+  >;
 }
 
 export interface UpgradeReconciliationResult {
@@ -24,7 +34,8 @@ export async function reconcileExecutedUpgrade(
   provider: UpgradeProvider,
 ): Promise<UpgradeReconciliationResult> {
   const record = contracts[upgrade.contractName];
-  if (!record?.implementationAddress) {
+  const currentRevision = record ? currentContractRevision(record) : undefined;
+  if (!record || !currentRevision?.implementationAddress) {
     throw new Error(`Manifest has no UUPS deployment for ${upgrade.contractName}`);
   }
 
@@ -61,8 +72,48 @@ export async function reconcileExecutedUpgrade(
     );
   }
 
-  upgrade.status = 'executed';
-  record.implementationAddress = liveImplementation;
-  record.implementationRuntimeCodeHash = implementationCodeHash;
+  if (upgrade.status !== 'executed') {
+    const executedAt = await findUpgradeEvent(record.address, expectedImplementation, upgrade, provider);
+    record.revisions.push({
+      implementationAddress: liveImplementation,
+      implementationRuntimeCodeHash: implementationCodeHash,
+      abi: upgrade.candidateAbi,
+      abiHash: upgrade.candidateAbiHash,
+      effectiveFrom: {kind: 'upgrade', event: executedAt},
+    });
+    upgrade.executedAt = executedAt;
+    upgrade.status = 'executed';
+  } else if (getAddress(currentContractRevision(record).implementationAddress!) !== expectedImplementation) {
+    throw new Error(`${upgrade.contractName} executed upgrade has no matching active ABI revision`);
+  }
   return {liveImplementation, executed: true};
+}
+
+async function findUpgradeEvent(
+  proxyAddress: string,
+  implementationAddress: string,
+  upgrade: ManifestUpgrade,
+  provider: UpgradeProvider,
+): Promise<LogReference> {
+  if (upgrade.executedAt) return upgrade.executedAt;
+  const logs = await provider.getLogs({
+    address: proxyAddress,
+    fromBlock: BigInt(upgrade.preparedAtBlock.blockNumber),
+    topics: [id('Upgraded(address)'), zeroPadValue(implementationAddress, 32)],
+  });
+  if (logs.length !== 1) {
+    throw new Error(
+      `Expected one Upgraded event for ${upgrade.contractName} implementation ${implementationAddress}, found ${logs.length}`,
+    );
+  }
+  const [log] = logs;
+  const logIndex = log.index ?? log.logIndex;
+  if (logIndex === undefined) throw new Error('Upgrade event has no log index');
+  return {
+    transactionHash: log.transactionHash,
+    blockNumber: String(log.blockNumber),
+    blockHash: log.blockHash,
+    transactionIndex: log.transactionIndex,
+    logIndex,
+  };
 }
