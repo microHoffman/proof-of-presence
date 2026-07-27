@@ -1,0 +1,136 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+#
+# TEMPORARY REVIEW SCOPE FOR THE PROTOCOL-V2 PR
+#
+# This configuration reduces the current review from 140 to 99 eligible files.
+#
+# INCLUDED:
+# - Production Solidity contracts
+# - Complex test mocks for incompatible storage, migrations, Safe behavior,
+#   reentrancy, transfer policies, and proxies
+# - All substantive contract, deployment, integration, and upgrade tests
+# - Ignition contract modules, upgrade modules, profile selection, and profiles
+#   except the trivial MinimalVillage wrapper
+# - Deployment, Safe handoff, reconciliation, verification, and upgrade scripts
+# - Blocking Slither, ERC conformance, SMT, OSV, and artifact security gates
+# - SMT security harnesses
+# - GitHub test workflow, Hardhat configuration, package.json, mise.toml,
+#   slither.config.json, and docs/ARCHITECTURE.md
+#
+# EXCLUDED:
+# - Secondary documentation and runbooks
+# - Generated security baselines, optional Gambit configuration, and security prose
+# - Optional Aderyn, Wake, Gambit, and coverage wrappers
+# - Repetitive generation-neutral upgrade fixtures
+# - Small test helpers, the opt-in scale test, help output, and MinimalVillage wrapper
+# - Formatting, lint, hook, example-environment, Dependabot, and metadata files
+# - This temporary .coderabbit.yaml file itself
+#
+# CodeRabbit also ignores yarn.lock and mise.lock through its default lock-file filters.
+
+reviews:
+  path_filters:
+    # Do not spend one of the 100 review slots reviewing this temporary file.
+    - '!.coderabbit.yaml'
+
+    # Excluded secondary documentation.
+    # docs/ARCHITECTURE.md remains included as implementation context.
+    - '!docs/DEPENDENCY_POLICY.md'
+    - '!docs/DEPLOYMENT.md'
+    - '!docs/INTEGRATION.md'
+    - '!docs/REMAINING_WORK.md'
+    - '!docs/VILLAGE_DEPLOYMENT_RUNBOOK.md'
+
+    # Excluded generated baselines, optional analyzer configuration, and prose.
+    # The executable blocking security gates and SMT harnesses remain included.
+    - '!security/ADERYN_TRIAGE.md'
+    - '!security/README.md'
+    - '!security/artifact-baseline.json'
+    - '!security/coverage-baseline.json'
+    - '!security/gambit.json'
+    - '!security/osv-baseline.json'
+
+    # Excluded optional pre-audit and deep-analysis wrappers.
+    # Included security scripts:
+    # - check-artifacts.js
+    # - run-osv.js
+    # - run-slither.js
+    # - run-slither-standards.js
+    # - run-smt.js
+    # - shared.js
+    - '!scripts/security/check-coverage.js'
+    - '!scripts/security/gambit-solc.js'
+    - '!scripts/security/run-aderyn.js'
+    - '!scripts/security/run-gambit.js'
+    - '!scripts/security/run-wake.js'
+    - '!scripts/security/test-gambit-mutants.js'
+
+    # Excluded repetitive generation-neutral upgrade fixtures.
+    # Included complex mocks:
+    # - CommunityTokenIncompatibleUpgradeMock.sol
+    # - CommunityTokenUpgradeMock.sol
+    # - DynamicPriceSaleMocks.sol
+    # - ERC1967ProxyForTest.sol
+    # - SafeMock.sol
+    # - TransferPolicyMock.sol
+    - '!src/village/test/DynamicPriceSaleUpgradeMock.sol'
+    - '!src/village/test/PresenceTokenUpgradeMock.sol'
+    - '!src/village/test/SweatTokenUpgradeMock.sol'
+    - '!src/village/test/TokenizedStaysUpgradeMock.sol'
+    - '!src/village/test/VillageAccessUpgradeMock.sol'
+    - '!src/village/test/VillageCitizenNFTUpgradeMock.sol'
+
+    # Excluded small helpers, optional tests, and presentation-only wrappers.
+    - '!test/hardhat.ts'
+    - '!test/helpers/child-process.ts'
+    - '!test/village/scale/TokenizedStays.scale.test.ts'
+    - '!scripts/print-deploy-help.js'
+    - '!ignition/modules/profiles/MinimalVillage.ts'
+
+    # Excluded lower-priority repository configuration and metadata.
+    # Critical package, compiler, Slither, Mise, Hardhat, and CI files remain included.
+    - '!.env.example'
+    - '!.gitattributes'
+    - '!.gitignore'
+    - '!.prettierignore'
+    - '!.prettierrc.cjs'
+    - '!.solhint.json'
+    - '!.solhintignore'
+    - '!README.md'
+    - '!eslint.config.js'
+    - '!lefthook.yml'
+    - '!tsconfig.json'
+    - '!wake.toml'
+    - '!.github/dependabot.yml'
+
+  path_instructions:
+    - path: 'src/**/*.sol'
+      instructions: |
+        Prioritize authorization, upgrade safety, ERC-7201 storage, initialization,
+        reentrancy, token accounting, permit handling, pricing boundaries, and invariants.
+
+    - path: 'src/village/test/**'
+      instructions: |
+        Verify that included test mocks faithfully model upgrade, Safe, policy,
+        reentrancy, and negative behavior and cannot make tests pass incorrectly.
+
+    - path: '{ignition,scripts}/**'
+      instructions: |
+        Prioritize deployment idempotency, module composition, configuration validation,
+        Safe ownership handoff, role assignment, reconciliation, upgrade validation,
+        failure recovery, and fail-closed error handling.
+
+    - path: 'scripts/security/**'
+      instructions: |
+        Ensure analyzer failures, malformed reports, unexpected exit statuses,
+        toolchain mismatches, and baseline errors cannot be silently accepted.
+
+    - path: 'test/**'
+      instructions: |
+        Check authorization failures, boundary conditions, upgrade and recovery paths,
+        invariant violations, state transitions, and integration behavior.
+
+    - path: 'docs/ARCHITECTURE.md'
+      instructions: |
+        Check that architectural and security claims agree with the changed contracts,
+        deployment workflow, authority model, and tests.
