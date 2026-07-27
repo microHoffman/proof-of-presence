@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "reviewedOn": "2026-07-22",
+  "reviewedOn": "2026-07-27",
   "note": "Existing dependency findings only. Reports remain visible; new package/version/advisory tuples fail CI.",
   "findings": [
     {
@@ -26,6 +26,18 @@
       "package": "bn.js",
       "version": "5.2.1",
       "id": "GHSA-378v-28hj-76wf"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "brace-expansion",
+      "version": "1.1.16",
+      "id": "GHSA-mh99-v99m-4gvg"
+    },
+    {
+      "ecosystem": "npm",
+      "package": "brace-expansion",
+      "version": "2.1.2",
+      "id": "GHSA-mh99-v99m-4gvg"
     },
     {
       "ecosystem": "npm",

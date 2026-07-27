@@ -69,13 +69,18 @@ The direct dependencies are currently at their declared versions, and a Yarn Cla
 not replace the affected nested lock entries. Do not force the following incompatible or unavailable remediations:
 
 - Hardhat's `adm-zip` requires a jump from 0.4 to 0.6;
+- `minimatch` 3 and 9 require `brace-expansion` 1.x and 2.x, while the reviewed advisory is fixed only in
+  `brace-expansion` 5.0.8;
 - Mocha's `diff` and `serialize-javascript` require new major versions;
 - `elliptic` has no fixed release for the recorded advisory.
 
 Other findings have fixed patch/minor releases, but remain owned by current Hardhat, Mocha, Solhint, ESLint,
 TypeScript-ESLint, Ignition, Safe, or OpenZeppelin dependency chains. Prefer upstream parent releases over broad Yarn
-resolutions. These packages execute only in local/CI build, test, lint, deployment, or verification tooling; none are
-linked into deployed EVM bytecode. Revisit the baseline whenever a parent release or advisory changes.
+resolutions. The legacy `brace-expansion` versions are reached only through project-controlled glob patterns in this
+tooling; do not pass untrusted brace expressions to it. These packages execute only in local/CI build, test, lint,
+deployment, or verification tooling; none are linked into deployed EVM bytecode. Revisit the baseline whenever a
+parent release or advisory changes, and remove the legacy `brace-expansion` findings when compatible `minimatch`
+parents become available.
 
 ## Static-analysis compatibility
 

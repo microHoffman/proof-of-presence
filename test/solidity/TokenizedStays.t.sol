@@ -564,12 +564,27 @@ contract TokenizedStaysTest is TestBase {
         vm.prank(member);
         stays.createBookings(_singleBooking(booking));
 
-        (bytes32 cachedTotalDelta, bytes32 cachedMaxPrefix) = _cachedYearSummarySlots(member, booking.year);
-        assertEq(cachedTotalDelta, bytes32(0));
-        assertEq(cachedMaxPrefix, bytes32(0));
+        (int256 cachedTotalDelta, int256 cachedMaxPrefix) = _cachedYearSummarySlots(member, booking.year);
+        assertEq(cachedTotalDelta, 0);
+        assertEq(cachedMaxPrefix, 0);
 
         TokenizedStays.YearSummary memory calculated = stays.getYearExposureSummary(member, booking.year);
         assertEq(calculated.maxPrefix, int256(2 ether));
+    }
+
+    function test_RefreshesExpirySummaryPastMaximumBookingYear() public {
+        uint16 bookingYear = stays.currentMaximumBookingYear();
+        uint16 lastBookingDay = stays.daysInYear(bookingYear);
+        uint256 price = 2 ether;
+        TokenizedStays.BookingInput memory booking = TokenizedStays.BookingInput(bookingYear, lastBookingDay, price);
+
+        vm.prank(member);
+        stays.createBookings(_singleBooking(booking));
+
+        uint16 expiryYear = bookingYear + 1;
+        (int256 totalDelta, int256 maxPrefix) = _cachedYearSummarySlots(member, expiryYear);
+        assertEq(totalDelta, -int256(price));
+        assertEq(maxPrefix, 0);
     }
 
     function test_RequiredBalanceQueriesAreExactAndBoundedToRetainedData() public {
@@ -681,12 +696,12 @@ contract TokenizedStaysTest is TestBase {
     function _cachedYearSummarySlots(
         address account,
         uint16 year
-    ) private view returns (bytes32 totalDelta, bytes32 maxPrefix) {
+    ) private view returns (int256 totalDelta, int256 maxPrefix) {
         uint256 yearSummariesSlot = erc7201("closer.storage.TokenizedStays") + 3;
         bytes32 accountSlot = keccak256(abi.encode(account, yearSummariesSlot));
         bytes32 summarySlot = keccak256(abi.encode(uint256(year), accountSlot));
-        totalDelta = vm.load(address(stays), summarySlot);
-        maxPrefix = vm.load(address(stays), bytes32(uint256(summarySlot) + 1));
+        totalDelta = int256(uint256(vm.load(address(stays), summarySlot)));
+        maxPrefix = int256(uint256(vm.load(address(stays), bytes32(uint256(summarySlot) + 1))));
     }
 
     function _bookingAt(uint32 offset, uint256 price) private view returns (TokenizedStays.BookingInput memory) {

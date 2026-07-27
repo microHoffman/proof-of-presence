@@ -913,6 +913,8 @@ contract TokenizedStays is
                     --insertAt;
                 }
             }
+            // Equality detects duplicate dates after insertion-sort placement.
+            // slither-disable-next-line incorrect-equality
             if (insertAt > 0 && dayIds[insertAt - 1] == dayId) {
                 revert BookingConflict(bookings[i].year, bookings[i].dayOfYear);
             }
@@ -992,12 +994,16 @@ contract TokenizedStays is
             if (dayId != rangeStart) {
                 existingExposure += TokenizedStaysExposure.dailyDelta(bookingPrices, dayId, LOCK_DAYS);
             }
+            // Proposed exposure expires exactly LOCK_DAYS after its booking date.
+            // slither-disable-next-line incorrect-equality
             while (expiring < afterRange && dayIds[expiring] + LOCK_DAYS == dayId) {
                 proposedExposure -= int256(prices[expiring]);
                 unchecked {
                     ++expiring;
                 }
             }
+            // Proposed exposure starts on its exact booking date.
+            // slither-disable-next-line incorrect-equality
             while (starting < afterRange && dayIds[starting] == dayId) {
                 proposedExposure += int256(prices[starting]);
                 unchecked {
@@ -1006,6 +1012,8 @@ contract TokenizedStays is
             }
             uint256 combined = uint256(existingExposure + proposedExposure);
             if (combined > maximum) maximum = combined;
+            // Equality is the inclusive range scan's termination condition.
+            // slither-disable-next-line incorrect-equality
             if (dayId == rangeEnd) break;
             unchecked {
                 ++dayId;
