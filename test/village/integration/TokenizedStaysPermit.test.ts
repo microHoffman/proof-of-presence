@@ -19,7 +19,7 @@ async function deployProxy(contractName: string, args: unknown[], signer: any): 
 }
 
 async function setup() {
-  const [deployer, owner, minter, member] = await ethers.getSigners();
+  const [deployer, owner, minter, member, relayer] = await ethers.getSigners();
   const access = await deployProxy(
     'VillageAccess',
     [owner.address, [{role: MINTER_ROLE, account: minter.address}]],
@@ -36,7 +36,7 @@ async function setup() {
     deployer,
   );
   await token.connect(minter).mint(member.address, parseEther('20'));
-  return {member, token, stays};
+  return {member, relayer, token, stays};
 }
 
 async function signPermit(
@@ -99,6 +99,23 @@ describe('TokenizedStays permit integration', function () {
     expect(await token.nonces(member.address)).to.equal(1n);
   });
 
+  it('accepts a deposit permit already consumed by a relayer when its allowance is sufficient', async function () {
+    const {member, relayer, token, stays} = await setup();
+    const amount = parseEther('3');
+    const latest = await ethers.provider.getBlock('latest');
+    const deadline = BigInt(latest!.timestamp + 3_600);
+    const signature = await signPermit(token, member, member.address, await stays.getAddress(), amount, deadline);
+
+    await token
+      .connect(relayer)
+      .permit(member.address, await stays.getAddress(), amount, deadline, signature.v, signature.r, signature.s);
+    await stays.connect(member).depositWithPermit(amount, deadline, signature.v, signature.r, signature.s);
+
+    expect(await stays.depositedBalanceOf(member.address)).to.equal(amount);
+    expect(await token.allowance(member.address, await stays.getAddress())).to.equal(0n);
+    expect(await token.nonces(member.address)).to.equal(1n);
+  });
+
   it('permits and pulls only a partially funded booking deficit', async function () {
     const {member, token, stays} = await setup();
     const price = parseEther('5');
@@ -121,6 +138,38 @@ describe('TokenizedStays permit integration', function () {
     expect(stored.pricePerDate).to.equal(price);
     expect(await token.allowance(member.address, await stays.getAddress())).to.equal(0n);
     expect(await token.balanceOf(await stays.getAddress())).to.equal(price);
+  });
+
+  it('accepts a booking permit already consumed by a relayer and pulls only the live deficit', async function () {
+    const {member, relayer, token, stays} = await setup();
+    const price = parseEther('5');
+    const signedDeficit = parseEther('3');
+    const booking = await futureBooking(stays, 30, price);
+
+    await token.connect(member).approve(await stays.getAddress(), parseEther('2'));
+    await stays.connect(member).deposit(parseEther('2'));
+    const latest = await ethers.provider.getBlock('latest');
+    const deadline = BigInt(latest!.timestamp + 3_600);
+    const signature = await signPermit(
+      token,
+      member,
+      member.address,
+      await stays.getAddress(),
+      signedDeficit,
+      deadline,
+    );
+    await token
+      .connect(relayer)
+      .permit(member.address, await stays.getAddress(), signedDeficit, deadline, signature.v, signature.r, signature.s);
+
+    // A later deposit reduces both the live deficit and the consumed permit allowance by the same amount.
+    await stays.connect(member).deposit(parseEther('1'));
+    await stays.connect(member).createBookingsWithPermit([booking], deadline, signature.v, signature.r, signature.s);
+
+    expect(await stays.depositedBalanceOf(member.address)).to.equal(price);
+    expect(await stays.requiredLockedBalance(member.address)).to.equal(price);
+    expect(await token.allowance(member.address, await stays.getAddress())).to.equal(0n);
+    expect(await token.nonces(member.address)).to.equal(1n);
   });
 
   it('rolls back a valid permit when Closer booking validation fails', async function () {

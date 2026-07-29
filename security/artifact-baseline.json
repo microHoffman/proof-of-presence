@@ -146,8 +146,8 @@
       "storageLayoutSha256": "f846b023549275be2e0c1636ca4bec256cd67a0365c39781e76ec879398473a8"
     },
     "TokenizedStays": {
-      "deployedBytecodeBytes": 20768,
-      "deployedBytecodeSha256": "5dee1e4f85993656258a6dc23982c0a01476922b71809a8135b02447d78db14e",
+      "deployedBytecodeBytes": 20849,
+      "deployedBytecodeSha256": "fe57576467c1b8ba2756c11c02071e3608591b7efaed02d50d960ff1c9a36193",
       "events": {
         "BookingBalanceReconciled(address,uint256,uint256,uint256)": "0x0f0e9684b94e4d0aae24472a23baa23e5f080b7483136ff3d7a74c8b83415d27",
         "BookingCanceled(address,uint16,uint16,uint256)": "0xa8a007a8f6d181846b3661a47edb28c9b4d098dc24b7930a6d82b8e60882f817",
@@ -332,7 +332,7 @@
     },
     "VillagePresenceToken": {
       "deployedBytecodeBytes": 12152,
-      "deployedBytecodeSha256": "9d3701bb053947e666daf80c7daeeb3ee7951f56b749c9fab661d6a7c2bbcfe6",
+      "deployedBytecodeSha256": "75d0b2cb1b0b58c2e2919ab41d91b140ffd2b9f26474ac9b500a568a4841fca2",
       "events": {
         "Approval(address,address,uint256)": "0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925",
         "BurnAllUserTokens(address)": "0x94f487081fa4538b2d02a6ad0e4d80a512d428f3bbfaf74d96ee177063ece9a7",
@@ -393,7 +393,7 @@
     },
     "VillageSweatToken": {
       "deployedBytecodeBytes": 12152,
-      "deployedBytecodeSha256": "a3408917be4480ef428d44ea02788114b67a65d77ca601249d8e62f33200d010",
+      "deployedBytecodeSha256": "c5ff9c3c20fb4bc33064d09fab11f7ade8bb4f483089d4ff9b3c962b4df7cfa9",
       "events": {
         "Approval(address,address,uint256)": "0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925",
         "BurnAllUserTokens(address)": "0x94f487081fa4538b2d02a6ad0e4d80a512d428f3bbfaf74d96ee177063ece9a7",

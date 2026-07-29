@@ -47,12 +47,14 @@ function client(overrides: Record<string, unknown> = {}) {
 }
 
 async function expectRejected(promise: Promise<unknown>, message: string): Promise<void> {
+  let failure: unknown;
   try {
     await promise;
-    expect.fail(`Expected '${message}'`);
   } catch (error) {
-    expect(error instanceof Error ? error.message : String(error)).to.include(message);
+    failure = error;
   }
+  if (failure === undefined) expect.fail(`Expected rejection including '${message}'`);
+  expect(failure instanceof Error ? failure.message : String(failure)).to.include(message);
 }
 
 describe('Safe owner-action status', function () {

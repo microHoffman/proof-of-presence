@@ -94,9 +94,10 @@ For the allowance flow:
 
 For the EIP-2612 flow, sign exactly the previewed nonzero deficit with a short deadline, then call
 `createBookingsWithPermit(bookings, deadline, v, r, s)`. The function deliberately has no caller-supplied permit
-amount: it recalculates the live deficit and uses that value in `permit`. If the state changed after signing, the
-signature no longer matches and the complete booking transaction reverts atomically. A zero-deficit batch uses
-`createBookings`, not the permit entry point.
+amount: it recalculates the live deficit and uses that value in `permit`. If a relayer already submitted the signature,
+the call continues only when the resulting allowance still covers the live deficit. Otherwise a stale or invalid
+signature reverts the complete booking transaction atomically. A zero-deficit batch uses `createBookings`, not the
+permit entry point.
 
 The API should return the contract preview to the UI instead of independently recreating locking arithmetic. The UI
 may display it but must refresh it around wallet authorization. Any residual allowance from a replaced/dropped flow

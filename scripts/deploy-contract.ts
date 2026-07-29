@@ -50,7 +50,8 @@ function printHelp(): void {
 
 Supported names: ${Object.keys(CONTRACT_MODULES).join(', ')}.
 The selected contract is deployed through the same Ignition Module used by village profiles. Required dependency
-Modules are included automatically (for example TokenizedStays includes CommunityToken and VillageAccess).`);
+Modules are included automatically (for example TokenizedStays includes CommunityToken and VillageAccess).
+The input config must use deploymentProfile 'minimal-village'.`);
 }
 
 async function main(): Promise<void> {
@@ -59,12 +60,17 @@ async function main(): Promise<void> {
     printHelp();
     throw new Error('--contract and --config are required');
   }
-  if (!(args.contract in CONTRACT_MODULES)) throw new Error(`Unsupported contract Module '${args.contract}'`);
+  if (!Object.hasOwn(CONTRACT_MODULES, args.contract))
+    throw new Error(`Unsupported contract Module '${args.contract}'`);
 
   const parsed = parseVillageDeploymentConfig(JSON.parse(await readFile(args.config, 'utf8')));
+  if (parsed.deploymentProfile !== 'minimal-village') {
+    throw new Error(
+      `Single-contract deployment requires deploymentProfile 'minimal-village', got '${parsed.deploymentProfile}'`,
+    );
+  }
   const config: VillageDeploymentConfig = {
     ...parsed,
-    deploymentProfile: 'minimal-village',
     modules: [...CONTRACT_MODULES[args.contract]],
   };
   const connection = args.network ? await hre.network.create(args.network) : await hre.network.create();

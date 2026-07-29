@@ -85,6 +85,6 @@ parents become available.
 ## Static-analysis compatibility
 
 The security toolchain deliberately pins compatible analyzer/compiler combinations. Wake uses a pinned project fork
-until upstream supports Solidity 0.8.35; Slither runs from a recorded upstream commit for ERC-7201 support; Aderyn is a
-secondary independent pass. Hardhat compilation and OpenZeppelin upgrade validation remain the authoritative build and
-storage-layout gates.
+until upstream supports Solidity 0.8.35; Slither uses release 0.11.6 at its immutable release commit for Hardhat 3 and
+Solidity 0.8.35/ERC-7201 support; Aderyn is a secondary independent pass. Hardhat compilation and OpenZeppelin upgrade
+validation remain the authoritative build and storage-layout gates.

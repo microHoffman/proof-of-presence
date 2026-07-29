@@ -15,7 +15,9 @@ export const ACTIVE_CONTRACTS = [
   ['src/profiles/tdf/TDFV1BondingCurve.sol', 'TDFV1BondingCurve'],
 ];
 
-export const SLITHER_SOURCE = process.env.SLITHER_SOURCE ?? 'git+https://github.com/crytic/slither.git@master';
+export const SLITHER_VERSION = process.env.SLITHER_VERSION ?? '0.11.6';
+export const SLITHER_SOURCE =
+  process.env.SLITHER_SOURCE ?? 'git+https://github.com/crytic/slither.git@050cc0a094e77bfd58e8228ae3bb6aa15c65edb4';
 
 const SOLC_VERSION = '0.8.35';
 const SOLC_BUILD_PATTERN = /Version: 0\.8\.35\+commit\.47b9dedd/;
@@ -101,4 +103,16 @@ export function slitherCommand(executable, args, refresh = false, options = {}, 
   if (refresh) uvArgs.push('--refresh');
   uvArgs.push('--from', source, executable, ...args);
   return run('uvx', uvArgs, options);
+}
+
+export function verifySlitherInstallation(refresh = false) {
+  const result = slitherCommand('slither', ['--version'], refresh, {capture: true});
+  const version = result.stdout?.trim() ?? '';
+  if (result.status !== 0 || version !== SLITHER_VERSION) {
+    const output = `${result.stdout ?? ''}${result.stderr ?? ''}`.trim();
+    throw new Error(
+      `Expected Slither ${SLITHER_VERSION} from '${SLITHER_SOURCE}', received status ${result.status ?? 'unknown'}:\n${output}`,
+    );
+  }
+  return version;
 }

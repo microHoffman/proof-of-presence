@@ -32,9 +32,10 @@ linters. Aderyn finding dispositions are tracked in `security/ADERYN_TRIAGE.md`.
 
 ## Analysis tools
 
-Slither is the primary broad detector. The runner records the exact analyzed upstream commit and produces JSON/SARIF
-per production contract. Medium/high project findings fail. Suppressions must name one detector, sit next to the
-intentional construct, and explain the disposition.
+Slither 0.11.6 is the primary broad detector, pinned to the immutable commit behind that release. The runner verifies
+the executable version and records both its source and version before producing JSON/SARIF per production contract.
+Medium/high project findings fail. Suppressions must name one detector, sit next to the intentional construct, and
+explain the disposition.
 
 Aderyn is a manual second opinion using the Mise-pinned Solidity 0.8.35 binary. The runner fails if no production
 sources or detectors are observed.

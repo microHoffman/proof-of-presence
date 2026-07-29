@@ -4,6 +4,7 @@ import {existsSync, readFileSync, writeFileSync} from 'node:fs';
 import console from 'node:console';
 import process from 'node:process';
 import {EventFragment, FunctionFragment, id} from 'ethers';
+import {baselineContractsMissingFromCurrent, loadStorageLayout} from './report-validation.js';
 import {ACTIVE_CONTRACTS} from './shared.js';
 
 const BASELINE_PATH = 'security/artifact-baseline.json';
@@ -25,14 +26,6 @@ function hash(value) {
   return createHash('sha256')
     .update(typeof value === 'string' ? value : JSON.stringify(stable(value)))
     .digest('hex');
-}
-
-function loadStorageLayout(artifact) {
-  const buildInfoPath = `artifacts/build-info/${artifact.buildInfoId}.output.json`;
-  if (!artifact.buildInfoId || !existsSync(buildInfoPath)) return null;
-  const buildInfo = JSON.parse(readFileSync(buildInfoPath, 'utf8'));
-  const source = buildInfo.output?.contracts?.[`project/${artifact.sourceName}`]?.[artifact.contractName];
-  return source?.storageLayout ?? null;
 }
 
 function currentManifest() {
@@ -79,6 +72,9 @@ if (process.argv.includes('--update')) {
 if (!existsSync(BASELINE_PATH))
   throw new Error(`Missing ${BASELINE_PATH}; create it with yarn security:artifacts:update.`);
 const baseline = JSON.parse(readFileSync(BASELINE_PATH, 'utf8'));
+if (baseline?.format !== 1 || !baseline.contracts || typeof baseline.contracts !== 'object') {
+  throw new Error(`${BASELINE_PATH} must use format 1 and contain a contracts object.`);
+}
 const failures = [];
 
 for (const [contractName, actual] of Object.entries(current.contracts)) {
@@ -100,6 +96,10 @@ for (const [contractName, actual] of Object.entries(current.contracts)) {
     if (actual.events[signature] !== topic)
       failures.push(`${contractName}: removed or changed event ${signature} (${topic})`);
   }
+}
+
+for (const contractName of baselineContractsMissingFromCurrent(baseline.contracts, current.contracts)) {
+  failures.push(`${contractName}: present in baseline but no longer analyzed`);
 }
 
 if (failures.length > 0) {

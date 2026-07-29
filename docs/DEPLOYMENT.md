@@ -109,6 +109,10 @@ yarn deploy:contract -- --contract TDFTransferPolicy --config config.json --netw
 yarn deploy:contract -- --contract VillageCitizenNFT --config config.json --network celoSepolia
 ```
 
+Standalone contract deployment requires `deploymentProfile: "minimal-village"` in the input config. The command
+rejects profile-locked configurations instead of discarding their validation rules when it selects the requested
+contract module and required dependencies.
+
 Canonical manifest paths are:
 
 - `deployments/villages/<chainId>/<villageSlug>.json`

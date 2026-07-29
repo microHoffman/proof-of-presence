@@ -26,6 +26,8 @@ import {DecayMath} from "../libraries/DecayMath.sol";
 /// the rate after balances exist can apply old/new rates inconsistently between accounts checkpointed at different
 /// times. A future version should use a cumulative index with rate epochs and authenticated or proportional burn
 /// accounting before mutable production rates are relied upon.
+/// Supported implementations retain OpenZeppelin's inherited 18 decimals; the absolute burn-rounding tolerance is
+/// denominated in that smallest-unit scale.
 abstract contract ERC20NonTransferableDecaying is
     Initializable,
     ERC20Upgradeable,
@@ -526,6 +528,7 @@ abstract contract ERC20NonTransferableDecaying is
     }
 
     function _approve(address owner_, address spender, uint256 amount, bool emitEvent) internal pure override {
+        // Keep the internal allowance hook blocked so a future ERC20Permit-based child cannot bypass `approve`.
         owner_;
         spender;
         amount;

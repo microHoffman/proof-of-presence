@@ -39,7 +39,8 @@ base. Their readable balances decay with time while mint/burn accounting and hol
 enforces a fixed 365-day lock window, Gregorian date validity, a bounded booking horizon, pause controls, and
 role-authorized managed cancellation. `previewCreateBookings` reports the account's current credited deposit, locked
 requirements before and after a proposed batch, and the exact resulting deficit. The allowance path pulls that live
-deficit; the permit path signs that same amount and reverts atomically if the state has changed. Off-chain booking
+deficit; the permit path signs that same amount. A permit already submitted by a relayer remains usable only when its
+resulting allowance covers the live deficit; other failed or stale permits revert atomically. Off-chain booking
 workflow state such as confirmation or check-in does not live in this contract.
 
 `VillageCitizenNFT` is a UUPS-upgradeable ERC-721 citizenship credential with Metadata, Enumerable, ERC-5192, and
@@ -89,10 +90,10 @@ Contract Ignition modules are composed into stable profile modules. Supported pr
 - `tokenized-stays-village`: VillageAccess, CommunityToken, VillageCitizenNFT, and TokenizedStays.
 - `tdf`: all village modules plus TDFTransferPolicy, DynamicPriceSale, and a new TDFV1BondingCurve.
 
-Other valid module combinations use a deterministic module ID derived from a stable module bit set. The same contract
-modules are reused by standalone contract deployment and profiles.
-The custom-module identifier retains its pre-CitizenNFT bit string whenever CitizenNFT is disabled; enabled custom
-graphs add a CitizenNFT bit, and sale-enabled graphs add a further bit, without changing named-profile module IDs.
+Other valid module combinations use `CustomVillageModule_v2_` followed by a fixed seven-bit mask in this stable order:
+CommunityToken, VillagePresenceToken, VillageSweatToken, TokenizedStays, TDFTransferPolicy, VillageCitizenNFT, and
+DynamicPriceSale. The same contract modules are reused by standalone contract deployment and profiles. Named-profile
+module IDs remain unchanged.
 
 Hardhat Ignition is the sole transaction journal and resumption engine. The deployment wrapper adds config
 validation, OpenZeppelin validation, ownership handoff, on-chain reconciliation, verification, atomic manifest

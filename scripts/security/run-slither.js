@@ -6,25 +6,20 @@ import {
   ACTIVE_CONTRACTS,
   ensureReportDirectory,
   reportSlug,
-  run,
+  SLITHER_SOURCE,
+  SLITHER_VERSION,
   slitherCompileArgs,
   slitherCommand,
+  verifySlitherInstallation,
 } from './shared.js';
 
 const reportDirectory = ensureReportDirectory('slither');
-const remote = run('git', ['ls-remote', 'https://github.com/crytic/slither.git', 'refs/heads/master'], {capture: true});
-if (remote.status !== 0) {
-  process.stderr.write(remote.stderr);
-  process.exit(remote.status ?? 1);
-}
-
-const resolvedCommit = remote.stdout.trim().split(/\s+/)[0];
-if (!/^[0-9a-f]{40}$/.test(resolvedCommit)) {
-  throw new Error(`Could not resolve Slither master commit from: ${remote.stdout.trim()}`);
-}
-writeFileSync(`${reportDirectory}/commit.txt`, `${resolvedCommit}\n`);
-console.log(`Slither source: master @ ${resolvedCommit}`);
-const resolvedSource = `git+https://github.com/crytic/slither.git@${resolvedCommit}`;
+rmSync(`${reportDirectory}/commit.txt`, {force: true});
+const verifiedVersion = verifySlitherInstallation();
+writeFileSync(`${reportDirectory}/source.txt`, `${SLITHER_SOURCE}\n`);
+writeFileSync(`${reportDirectory}/version.txt`, `${verifiedVersion}\n`);
+console.log(`Slither source: ${SLITHER_SOURCE}`);
+console.log(`Slither version: ${SLITHER_VERSION}`);
 const compileArgs = slitherCompileArgs();
 
 let failed = false;
@@ -38,9 +33,8 @@ for (const [target] of ACTIVE_CONTRACTS) {
   const result = slitherCommand(
     'slither',
     [target, ...compileArgs, '--json', jsonReport, '--sarif', sarifReport, '--fail-medium'],
-    target === ACTIVE_CONTRACTS[0][0],
+    false,
     {},
-    resolvedSource,
   );
   failed ||= result.status !== 0;
 }

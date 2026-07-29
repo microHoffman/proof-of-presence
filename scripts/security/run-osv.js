@@ -2,23 +2,24 @@
 import {existsSync, readFileSync, writeFileSync} from 'node:fs';
 import console from 'node:console';
 import process from 'node:process';
+import {parseOsvReport} from './report-validation.js';
 import {ensureReportDirectory, run} from './shared.js';
 
 const BASELINE_PATH = 'security/osv-baseline.json';
 const reportDirectory = ensureReportDirectory('osv');
 const result = run('osv-scanner', ['scan', 'source', '--format', 'json', '--lockfile', 'yarn.lock'], {capture: true});
 
-writeFileSync(`${reportDirectory}/results.json`, result.stdout || '{}\n');
 if (result.stderr) process.stderr.write(result.stderr);
 if (result.status !== 0 && result.status !== 1) {
   process.stderr.write('OSV-Scanner could not complete the scan.\n');
   process.exit(result.status ?? 1);
 }
 
-const report = JSON.parse(result.stdout || '{}');
-const findings = (report.results ?? [])
-  .flatMap((scanResult) => scanResult.packages ?? [])
-  .flatMap(({package: packageInfo, vulnerabilities = []}) =>
+const report = parseOsvReport(result.stdout);
+writeFileSync(`${reportDirectory}/results.json`, `${JSON.stringify(report, null, 2)}\n`);
+const findings = report.results
+  .flatMap((scanResult) => scanResult.packages)
+  .flatMap(({package: packageInfo, vulnerabilities}) =>
     vulnerabilities.map(({id}) => ({
       ecosystem: packageInfo.ecosystem,
       package: packageInfo.name,
@@ -45,6 +46,9 @@ if (!existsSync(BASELINE_PATH)) {
 }
 
 const baseline = JSON.parse(readFileSync(BASELINE_PATH, 'utf8'));
+if (baseline?.format !== 1 || !Array.isArray(baseline.findings)) {
+  throw new Error(`${BASELINE_PATH} must use format 1 and contain a findings array.`);
+}
 const accepted = new Set(baseline.findings.map(findingKey));
 const newFindings = findings.filter((finding) => !accepted.has(findingKey(finding)));
 

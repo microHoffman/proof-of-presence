@@ -599,6 +599,9 @@ export function validateVillageDeploymentConfig(
   if (modules.dynamicPriceSale && !modules.communityToken) {
     throw new Error('dynamicPriceSale requires communityToken');
   }
+  if (!modules.tdfTransferPolicy && config.tdfTransferPolicy !== undefined) {
+    throw new Error('tdfTransferPolicy configuration requires the tdfTransferPolicy module');
+  }
   if (config.deploymentProfile === 'tdf' && !config.tdfTransferPolicy?.treasury) {
     throw new Error('tdf requires tdfTransferPolicy.treasury');
   }

@@ -18,6 +18,7 @@ describe('Village deployment config schema', function () {
   it('canonicalizes durable JSON hashes independently of object key order', function () {
     expect(canonicalJsonStringify({z: 1, a: {d: 2, b: 3}, omitted: undefined})).to.equal('{"a":{"b":3,"d":2},"z":1}');
     expect(canonicalJsonStringify([1, undefined, {b: 2, a: 1}])).to.equal('[1,null,{"a":1,"b":2}]');
+    expect(canonicalJsonStringify({ä: 1, a: 2, Z: 3})).to.equal('{"Z":3,"a":2,"ä":1}');
   });
 
   it('requires the current schema version, normalizes defaults, and rejects unknown fields', async function () {
@@ -120,6 +121,24 @@ describe('Village deployment config schema', function () {
 
     expect(() => validateVillageDeploymentConfig(config, config.chainId)).to.throw(
       'communityToken.transferPolicy cannot be set when the deployed TDFTransferPolicy is selected',
+    );
+  });
+
+  it('rejects TDF transfer-policy configuration when its module is not selected', async function () {
+    const [, owner, apiOperator, treasury] = await ethers.getSigners();
+    const config: VillageDeploymentConfig = {
+      schemaVersion: 1,
+      villageSlug: 'unused-tdf-policy',
+      chainId: 31337,
+      deploymentProfile: 'minimal-village',
+      finalOwner: {type: 'eoa', address: owner.address},
+      modules: [],
+      apiOperator: apiOperator.address,
+      tdfTransferPolicy: {treasury: treasury.address, restrictionsEnabled: false},
+    };
+
+    expect(() => validateVillageDeploymentConfig(config, config.chainId)).to.throw(
+      'tdfTransferPolicy configuration requires the tdfTransferPolicy module',
     );
   });
 
@@ -240,7 +259,7 @@ describe('Village deployment config schema', function () {
         profile: 'minimal-village',
         modules: ['citizenNft'],
         expected: flags({citizenNft: true}),
-        moduleId: 'CustomVillageModule_000001',
+        moduleId: 'CustomVillageModule_v2_0000010',
         nestedModuleId: 'VillageCitizenNFTModule',
       },
       {
@@ -253,27 +272,27 @@ describe('Village deployment config schema', function () {
         profile: 'minimal-village',
         modules: ['communityToken', 'presenceToken'],
         expected: flags({communityToken: true, presenceToken: true}),
-        moduleId: 'CustomVillageModule_11000',
+        moduleId: 'CustomVillageModule_v2_1100000',
       },
       {
         profile: 'minimal-village',
         modules: ['communityToken', 'tdfTransferPolicy'],
         expected: flags({communityToken: true, tdfTransferPolicy: true}),
-        moduleId: 'CustomVillageModule_10001',
+        moduleId: 'CustomVillageModule_v2_1000100',
         nestedModuleId: 'TdfCommunityTokenModule',
       },
       {
         profile: 'minimal-village',
         modules: ['communityToken', 'tokenizedStays', 'tdfTransferPolicy'],
         expected: flags({communityToken: true, tokenizedStays: true, tdfTransferPolicy: true}),
-        moduleId: 'CustomVillageModule_10011',
+        moduleId: 'CustomVillageModule_v2_1001100',
         nestedModuleId: 'TdfTokenizedStaysModule',
       },
       {
         profile: 'minimal-village',
         modules: ['communityToken', 'dynamicPriceSale'],
         expected: flags({communityToken: true, dynamicPriceSale: true}),
-        moduleId: 'CustomVillageModule_100001',
+        moduleId: 'CustomVillageModule_v2_1000001',
         nestedModuleId: 'DynamicPriceSaleModule',
       },
     ];
@@ -300,6 +319,19 @@ describe('Village deployment config schema', function () {
         expect(collectModuleIds(selected)).to.include(testCase.nestedModuleId);
       }
     }
+  });
+
+  it('uses distinct fixed-width IDs for citizen and sale custom graphs', function () {
+    const citizenGraph = selectVillageProfileModule(
+      flags({communityToken: true, presenceToken: true, citizenNft: true}),
+    );
+    const saleGraph = selectVillageProfileModule(
+      flags({communityToken: true, presenceToken: true, dynamicPriceSale: true}),
+    );
+
+    expect(citizenGraph.id).to.equal('CustomVillageModule_v2_1100010');
+    expect(saleGraph.id).to.equal('CustomVillageModule_v2_1100001');
+    expect(citizenGraph.id).not.to.equal(saleGraph.id);
   });
 
   it('requires a nonempty CitizenNFT base URI and grants only explicitly configured operators', async function () {

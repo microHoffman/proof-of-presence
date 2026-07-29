@@ -14,6 +14,25 @@ export interface IgnitionVerificationAttempt {
   output: string;
 }
 
+interface VerificationChildProcess {
+  stdout: NodeJS.ReadableStream;
+  stderr: NodeJS.ReadableStream;
+  on(event: 'error', listener: (error: Error) => void): this;
+  on(event: 'close', listener: (code: number | null) => void): this;
+  kill(signal?: NodeJS.Signals | number): boolean;
+}
+
+export interface IgnitionVerificationOptions {
+  timeoutMs?: number;
+  spawnProcess?: (command: string, args: string[]) => VerificationChildProcess;
+}
+
+const IGNITION_VERIFICATION_TIMEOUT_MS = 10 * 60_000;
+
+function spawnVerificationProcess(command: string, args: string[]): VerificationChildProcess {
+  return spawn(command, args, {stdio: ['ignore', 'pipe', 'pipe']});
+}
+
 /**
  * Runs the same best-effort Ignition verification task for initial submission and later retries.
  * Explorer failures are returned as attempts rather than thrown so deployment completion does not depend on explorer uptime.
@@ -21,6 +40,7 @@ export interface IgnitionVerificationAttempt {
 export async function verifyIgnitionDeployment(
   network: string,
   deploymentId: string,
+  options: IgnitionVerificationOptions = {},
 ): Promise<IgnitionVerificationAttempt> {
   const command = ['npx', '--no-install', 'hardhat', '--network', network, 'ignition', 'verify', deploymentId];
   if (['default', 'localhost'].includes(network)) {
@@ -35,23 +55,47 @@ export async function verifyIgnitionDeployment(
   }
 
   return new Promise((resolve) => {
-    const child = spawn(command[0], command.slice(1), {stdio: ['ignore', 'pipe', 'pipe']});
     let output = '';
-    child.stdout.on('data', (chunk) => {
-      output += chunk.toString();
-    });
-    child.stderr.on('data', (chunk) => {
-      output += chunk.toString();
-    });
-    child.on('close', (code) => {
+    let settled = false;
+    let child: VerificationChildProcess;
+    const finish = (status: IgnitionVerificationAttempt['status']) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
       resolve({
-        status: code === 0 ? 'success' : 'failed',
+        status,
         attemptedAt: new Date().toISOString(),
         network,
         deploymentId,
         command,
         output,
       });
+    };
+    const timeout = setTimeout(() => {
+      output += `\nVerification timed out after ${options.timeoutMs ?? IGNITION_VERIFICATION_TIMEOUT_MS}ms.`;
+      finish('failed');
+      child.kill('SIGTERM');
+    }, options.timeoutMs ?? IGNITION_VERIFICATION_TIMEOUT_MS);
+
+    try {
+      child = (options.spawnProcess ?? spawnVerificationProcess)(command[0], command.slice(1));
+    } catch (error) {
+      output += error instanceof Error ? error.message : String(error);
+      finish('failed');
+      return;
+    }
+    child.stdout.on('data', (chunk) => {
+      output += chunk.toString();
+    });
+    child.stderr.on('data', (chunk) => {
+      output += chunk.toString();
+    });
+    child.on('error', (error) => {
+      output += `\n${error.message}`;
+      finish('failed');
+    });
+    child.on('close', (code) => {
+      finish(code === 0 ? 'success' : 'failed');
     });
   });
 }

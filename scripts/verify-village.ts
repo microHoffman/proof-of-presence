@@ -4,12 +4,17 @@ import {readVillageDeploymentManifest} from './deployment/village.js';
 import {recordIgnitionVerification, verifyIgnitionDeployment} from './deployment/verification.js';
 
 function manifestArgument(argv: string[]): string | undefined {
-  const index = argv.indexOf('--manifest');
-  if (index >= 0) return argv[index + 1];
   if (argv.includes('--help') || argv.includes('-h')) return undefined;
-  const unknown = argv.filter((value, position) => position !== index + 1 && value !== '--submit');
-  if (unknown.length > 0) throw new Error(`Unknown argument '${unknown[0]}'`);
-  return undefined;
+  let manifest: string | undefined;
+  for (let index = 0; index < argv.length; index++) {
+    const argument = argv[index];
+    if (argument !== '--manifest') throw new Error(`Unknown argument '${argument}'`);
+    if (manifest !== undefined) throw new Error('--manifest may only be provided once');
+    const value = argv[++index];
+    if (!value || value.startsWith('--')) throw new Error('--manifest requires a path');
+    manifest = value;
+  }
+  return manifest;
 }
 
 async function main(): Promise<void> {

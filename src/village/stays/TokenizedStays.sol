@@ -4,6 +4,7 @@ pragma solidity 0.8.35;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
@@ -275,8 +276,9 @@ contract TokenizedStays is
     }
 
     /// @notice Credits a deposit after obtaining an exact EIP-2612 allowance in the same transaction.
-    /// @dev The deposited token must implement EIP-2612. A failed transfer or deposit reverts the permit as part of the
-    /// same transaction.
+    /// @dev The deposited token must implement EIP-2612. If a relayer already consumed the signature, the deposit may
+    /// continue only when the resulting allowance still covers `amount`. A failed transfer or deposit reverts
+    /// atomically.
     /// @param amount CommunityToken amount to permit, transfer, and credit.
     /// @param deadline Last timestamp at which the permit signature is valid.
     /// @param v ECDSA signature recovery byte.
@@ -291,7 +293,7 @@ contract TokenizedStays is
     ) external nonReentrant whenNotPaused {
         // The function-level transient guard rejects token callbacks before any escrow accounting is changed.
         // wake-disable-next-line reentrancy
-        IERC20Permit(address(communityToken())).permit(_msgSender(), address(this), amount, deadline, v, r, s);
+        _permitOrUseAllowance(_msgSender(), amount, deadline, v, r, s);
         _depositFor(_msgSender(), amount);
     }
 
@@ -317,8 +319,10 @@ contract TokenizedStays is
     }
 
     /// @notice Creates bookings after obtaining an exact EIP-2612 allowance for the resulting balance deficit.
-    /// @dev Booking changes are staged before the live deficit is known. A failed or stale permit rolls the complete
-    /// transaction back atomically. Use `createBookings` when no additional deposit is required.
+    /// @dev Booking changes are staged before the live deficit is known. If a relayer already consumed the signature,
+    /// the transaction may continue only when the resulting allowance covers the live deficit. Other failed or stale
+    /// permits roll the complete transaction back atomically. Use `createBookings` when no additional deposit is
+    /// required.
     /// @param bookings Dates and per-date prices to store.
     /// @param deadline Last timestamp at which the permit signature is valid.
     /// @param v ECDSA signature recovery byte.
@@ -339,7 +343,7 @@ contract TokenizedStays is
 
         // The function-level transient guard rejects token callbacks before they can make reentrant accounting changes.
         // wake-disable-next-line reentrancy
-        IERC20Permit(address(communityToken())).permit(_msgSender(), address(this), depositDeficit, deadline, v, r, s);
+        _permitOrUseAllowance(_msgSender(), depositDeficit, deadline, v, r, s);
         _reconcileBookingBalance($, _msgSender(), required);
     }
 
@@ -449,6 +453,7 @@ contract TokenizedStays is
             }
         }
 
+        // Truncate the preallocated memory array to the number of populated booking results.
         // solhint-disable-next-line no-inline-assembly
         assembly ("memory-safe") {
             mstore(bookings, count)
@@ -1028,6 +1033,28 @@ contract TokenizedStays is
         $.totalDepositedBalance += amount;
         communityToken().safeTransferFrom(account, address(this), amount);
         emit Deposit(account, amount);
+    }
+
+    function _permitOrUseAllowance(
+        address account,
+        uint256 amount,
+        uint256 deadline,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) private {
+        IERC20 token = communityToken();
+        try IERC20Permit(address(token)).permit(account, address(this), amount, deadline, v, r, s) {} catch (
+            bytes memory reason
+        ) {
+            // A public permit may be consumed by a relayer before this transaction; only its resulting allowance
+            // makes that failed permit safe to ignore.
+            if (token.allowance(account, address(this)) < amount) {
+                // The successful return is unreachable because `success` is fixed false; this call only bubbles `reason`.
+                // slither-disable-next-line unused-return
+                Address.verifyCallResult(false, reason);
+            }
+        }
     }
 
     function _withdrawUnlocked(address account, uint256 requested) internal {

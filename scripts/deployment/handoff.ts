@@ -9,9 +9,24 @@ import {
 import {
   pendingOwnershipHandoffActions,
   reconcileOwnershipHandoff,
+  type ManualAction,
   type VillageDeploymentContext,
   type VillageDeploymentManifest,
 } from './village.js';
+
+export function delayedOwnershipAcceptance(
+  actions: readonly ManualAction[],
+  currentTimestamp: number,
+): ManualAction | undefined {
+  return actions.find((action) => {
+    if (!action.acceptAfter) return false;
+    const acceptAfter = Date.parse(action.acceptAfter);
+    if (Number.isNaN(acceptAfter)) {
+      throw new Error(`${action.contractName} has an unparseable acceptAfter '${action.acceptAfter}'`);
+    }
+    return acceptAfter / 1000 > currentTimestamp;
+  });
+}
 
 /** Submits only final ownership/default-admin acceptances; deployment configuration is already complete. */
 export async function submitOwnershipHandoff(
@@ -41,10 +56,10 @@ export async function submitOwnershipHandoff(
   const signer = signers.find((candidate: {address: string}) => getAddress(candidate.address) === ownerAddress);
   if (!signer) throw new Error(`Final EOA owner ${ownerAddress} is not available among configured Hardhat signers`);
 
-  const currentTimestamp = Number((await context.ethers.provider.getBlock('latest')).timestamp);
-  const delayed = actions.find(
-    (action) => action.acceptAfter && Date.parse(action.acceptAfter) / 1000 > currentTimestamp,
-  );
+  const latestBlock = await context.ethers.provider.getBlock('latest');
+  if (!latestBlock) throw new Error('Could not read the latest block to evaluate ownership acceptance delays');
+  const currentTimestamp = Number(latestBlock.timestamp);
+  const delayed = delayedOwnershipAcceptance(actions, currentTimestamp);
   if (delayed) {
     throw new Error(`${delayed.contractName} ownership cannot be accepted before ${delayed.acceptAfter}`);
   }
