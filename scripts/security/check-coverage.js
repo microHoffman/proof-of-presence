@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import {existsSync, readFileSync, writeFileSync} from 'node:fs';
+import {existsSync, readFileSync, readdirSync, writeFileSync} from 'node:fs';
 import console from 'node:console';
 import process from 'node:process';
 
@@ -8,6 +8,23 @@ const BASELINE_PATH = 'security/coverage-baseline.json';
 const NEW_FILE_MINIMUM = 90;
 const ACTIVE_PREFIXES = ['src/village/', 'src/profiles/tdf/'];
 const EXCLUDED_PREFIXES = ['src/village/test/', 'src/village/interfaces/'];
+const EXCLUDED_SOURCES = new Set([
+  // Compile-time role constants have no executable lines for LCOV to instrument.
+  'src/village/access/VillageRoles.sol',
+  // The wrapper delegates its constructor entirely to OpenZeppelin's ERC1967Proxy.
+  'src/village/proxy/VillageUUPSProxy.sol',
+]);
+
+function soliditySources(root) {
+  return readdirSync(root, {withFileTypes: true}).flatMap((entry) => {
+    const source = `${root}/${entry.name}`;
+    return entry.isDirectory() ? soliditySources(source) : entry.name.endsWith('.sol') ? [source] : [];
+  });
+}
+
+const requiredSources = [...soliditySources('src/village'), ...soliditySources('src/profiles/tdf')].filter(
+  (source) => !EXCLUDED_PREFIXES.some((prefix) => source.startsWith(prefix)) && !EXCLUDED_SOURCES.has(source),
+);
 
 if (!existsSync(LCOV_PATH)) throw new Error(`Missing ${LCOV_PATH}; run yarn coverage first.`);
 
@@ -35,6 +52,9 @@ if (!existsSync(BASELINE_PATH))
 const baseline = JSON.parse(readFileSync(BASELINE_PATH, 'utf8'));
 const failures = [];
 
+for (const source of requiredSources) {
+  if (!files[source]) failures.push(`${source}: production source is missing from the coverage report`);
+}
 for (const [source, actual] of Object.entries(files)) {
   const expected = baseline.files[source];
   const minimum = expected?.percent ?? baseline.newFileMinimumPercent ?? NEW_FILE_MINIMUM;

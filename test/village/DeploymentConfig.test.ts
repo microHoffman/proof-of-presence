@@ -1,8 +1,10 @@
 import {expect} from 'chai';
 import {MaxUint256, parseEther} from 'ethers';
 import {ethers} from '../hardhat.js';
+import projectConfig from '../../config/project.json';
 import {canonicalJsonStringify} from '../../scripts/deployment/canonical-json.js';
-import {parseTdfDeploymentConfig, parseVillageDeploymentConfig} from '../../scripts/deployment/config.js';
+import {CONTRACT_NAMES, UUPS_CONTRACTS, UUPS_CONTRACT_NAMES} from '../../scripts/deployment/contract-registry.js';
+import {parseTdfDeploymentConfig, parseVillageDeploymentConfig} from '../../scripts/deployment/spec.js';
 import {
   dependencyAdditions,
   graphIdForSpec,
@@ -15,6 +17,13 @@ import {deriveInitialRoleGrants, ROLE_IDS, validateVillageDeploymentConfig} from
 import {buildVillageGraph} from '../../ignition/modules/VillageGraph.js';
 
 describe('Deployment schema and resolution', function () {
+  it('keeps deployment, UUPS, and production security inventories aligned', function () {
+    const productionNames = projectConfig.productionContracts.map(([, contractName]) => contractName);
+    expect(productionNames).to.include.members([...CONTRACT_NAMES, 'VillageUUPSProxy']);
+    expect([...UUPS_CONTRACT_NAMES]).to.deep.equal(Object.keys(UUPS_CONTRACTS));
+    expect(CONTRACT_NAMES).to.deep.equal(['TDFTransferPolicy', ...UUPS_CONTRACT_NAMES]);
+  });
+
   it('canonicalizes durable JSON independently of object key order', function () {
     expect(canonicalJsonStringify({z: 1, a: {d: 2, b: 3}, omitted: undefined})).to.equal('{"a":{"b":3,"d":2},"z":1}');
   });
@@ -156,7 +165,7 @@ describe('Deployment schema and resolution', function () {
     const spec = parseVillageDeploymentConfig({
       ...accessInput(owner.address, operator.address),
       contracts: ['VillagePresenceToken'],
-      presenceToken: {decayRatePerDay: 42},
+      presenceToken: {decayRatePerDay: '42'},
     });
     expect(deriveInitialRoleGrants(spec)).to.deep.include({
       role: ROLE_IDS.BOOKING_PLATFORM_ROLE,
@@ -165,6 +174,76 @@ describe('Deployment schema and resolution', function () {
       source: 'module-derived',
     });
     expect(() => validateVillageDeploymentConfig(spec, 42220)).to.throw('does not match selected network');
+  });
+
+  it('requires unsigned integer deployment values to be decimal strings', async function () {
+    const [, owner, operator] = await ethers.getSigners();
+    const input = {
+      ...accessInput(owner.address, operator.address),
+      contracts: ['VillagePresenceToken'],
+    };
+    expect(() =>
+      parseVillageDeploymentConfig({
+        ...input,
+        presenceToken: {decayRatePerDay: 42},
+      }),
+    ).to.throw('decimal string');
+    expect(() =>
+      parseVillageDeploymentConfig({
+        ...input,
+        presenceToken: {decayRatePerDay: Number.MAX_SAFE_INTEGER + 1},
+      }),
+    ).to.throw('decimal string');
+    expect(
+      parseVillageDeploymentConfig({
+        ...input,
+        presenceToken: {decayRatePerDay: '42'},
+      }).presenceToken?.decayRatePerDay,
+    ).to.equal('42');
+  });
+
+  it('requires an exact, internally valid Safe owner set and threshold', async function () {
+    const [, safe, firstOwner, secondOwner, operator] = await ethers.getSigners();
+    const input = accessInput(safe.address, operator.address);
+    expect(() =>
+      parseVillageDeploymentConfig({
+        ...input,
+        finalOwner: {type: 'safe', address: safe.address},
+      }),
+    ).to.throw();
+    expect(() =>
+      parseVillageDeploymentConfig({
+        ...input,
+        finalOwner: {
+          type: 'safe',
+          address: safe.address,
+          expectedOwners: [firstOwner.address, firstOwner.address],
+          expectedThreshold: 1,
+        },
+      }),
+    ).to.throw('duplicate owners');
+    expect(() =>
+      parseVillageDeploymentConfig({
+        ...input,
+        finalOwner: {
+          type: 'safe',
+          address: safe.address,
+          expectedOwners: [firstOwner.address, secondOwner.address],
+          expectedThreshold: 3,
+        },
+      }),
+    ).to.throw('must not exceed');
+
+    const parsed = parseVillageDeploymentConfig({
+      ...input,
+      finalOwner: {
+        type: 'safe',
+        address: safe.address,
+        expectedOwners: [firstOwner.address, secondOwner.address],
+        expectedThreshold: 2,
+      },
+    });
+    expect(parsed.finalOwner).to.deep.include({expectedThreshold: 2});
   });
 });
 

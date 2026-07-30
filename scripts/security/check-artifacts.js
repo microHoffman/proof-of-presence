@@ -4,7 +4,7 @@ import {existsSync, readFileSync, writeFileSync} from 'node:fs';
 import console from 'node:console';
 import process from 'node:process';
 import {EventFragment, FunctionFragment, id} from 'ethers';
-import {baselineContractsMissingFromCurrent, loadStorageLayout} from './report-validation.js';
+import {artifactBaselineFailures} from './report-validation.js';
 import {ACTIVE_CONTRACTS} from './shared.js';
 
 const BASELINE_PATH = 'security/artifact-baseline.json';
@@ -54,12 +54,11 @@ function currentManifest() {
       sourceName,
       deployedBytecodeBytes: Math.max(0, (deployedBytecode.length - 2) / 2),
       deployedBytecodeSha256: hash(deployedBytecode),
-      storageLayoutSha256: hash(loadStorageLayout(artifact)),
       functions: stable(functions),
       events: stable(events),
     };
   }
-  return {format: 1, contracts: stable(contracts)};
+  return {format: 2, contracts: stable(contracts)};
 }
 
 const current = currentManifest();
@@ -72,47 +71,17 @@ if (process.argv.includes('--update')) {
 if (!existsSync(BASELINE_PATH))
   throw new Error(`Missing ${BASELINE_PATH}; create it with yarn security:artifacts:update.`);
 const baseline = JSON.parse(readFileSync(BASELINE_PATH, 'utf8'));
-if (baseline?.format !== 1 || !baseline.contracts || typeof baseline.contracts !== 'object') {
-  throw new Error(`${BASELINE_PATH} must use format 1 and contain a contracts object.`);
+if (baseline?.format !== 2 || !baseline.contracts || typeof baseline.contracts !== 'object') {
+  throw new Error(`${BASELINE_PATH} must use format 2 and contain a contracts object.`);
 }
-const failures = [];
-
-for (const [contractName, actual] of Object.entries(current.contracts)) {
-  const expected = baseline.contracts[contractName];
-  if (!expected) {
-    failures.push(`${contractName}: missing committed baseline`);
-    continue;
-  }
-  if (actual.deployedBytecodeBytes > MAX_DEPLOYED_BYTECODE_BYTES) {
-    failures.push(
-      `${contractName}: ${actual.deployedBytecodeBytes} byte runtime exceeds EIP-170's ${MAX_DEPLOYED_BYTECODE_BYTES} byte limit`,
-    );
-  }
-  for (const [signature, selector] of Object.entries(expected.functions)) {
-    if (actual.functions[signature] !== selector)
-      failures.push(`${contractName}: removed or changed function ${signature} (${selector})`);
-  }
-  for (const [signature, topic] of Object.entries(expected.events)) {
-    if (actual.events[signature] !== topic)
-      failures.push(`${contractName}: removed or changed event ${signature} (${topic})`);
-  }
-}
-
-for (const contractName of baselineContractsMissingFromCurrent(baseline.contracts, current.contracts)) {
-  failures.push(`${contractName}: present in baseline but no longer analyzed`);
-}
+const failures = artifactBaselineFailures(baseline.contracts, current.contracts, MAX_DEPLOYED_BYTECODE_BYTES);
 
 if (failures.length > 0) {
   console.error(failures.map((failure) => `- ${failure}`).join('\n'));
-  console.error('Intentional ABI changes require review and `yarn security:artifacts:update`.');
+  console.error('Intentional ABI or bytecode changes require review and `yarn security:artifacts:update`.');
   process.exit(1);
 }
 
 for (const [contractName, actual] of Object.entries(current.contracts)) {
-  const expected = baseline.contracts[contractName];
-  const bytecodeChanged = actual.deployedBytecodeSha256 !== expected.deployedBytecodeSha256;
-  const storageChanged = actual.storageLayoutSha256 !== expected.storageLayoutSha256;
-  console.log(
-    `${contractName}: ${actual.deployedBytecodeBytes} bytes${bytecodeChanged ? ', bytecode changed' : ''}${storageChanged ? ', storage layout changed' : ''}`,
-  );
+  console.log(`${contractName}: ${actual.deployedBytecodeBytes} bytes, reviewed ABI and bytecode`);
 }

@@ -30,6 +30,16 @@ includes the ten-year scale case.
 Aderyn, Wake, and targeted Gambit mutation generation are independent pre-audit evidence rather than per-commit
 linters. Aderyn finding dispositions are tracked in `security/ADERYN_TRIAGE.md`.
 
+For an audit candidate, commit all intended changes, start from a clean worktree, and run:
+
+```sh
+mise run security:preaudit
+```
+
+The clean-tree guard records the source commit, pinned Node/Yarn/Solidity versions, and hashes of reviewed build and
+analysis inputs in ignored `security-reports/audit-metadata.json`. Individual analyzer reports record their own tool
+versions. Preserve that directory with the audit handoff; do not regenerate evidence from an uncommitted tree.
+
 ## Analysis tools
 
 Slither 0.11.6 is the primary broad detector, pinned to the immutable commit behind that release. The runner verifies
@@ -62,10 +72,13 @@ A surviving mutant needs either a new assertion/test or an explicit equivalence 
 
 ## Reviewed baselines
 
-- `security/artifact-baseline.json` records selectors, event topics, deployed bytecode, storage-layout fingerprints,
-  and code size. Update with `yarn security:artifacts:update` only after intentional ABI/storage/metadata review.
+- `security/artifact-baseline.json` records the exact production inventory, source identity, function selectors,
+  event topics, deployed-bytecode hash, and code size. Any addition, removal, or bytecode change blocks until the
+  complete diff is reviewed and `yarn security:artifacts:update` is run intentionally. Storage compatibility is
+  enforced separately by OpenZeppelin upgrade validation.
 - `security/coverage-baseline.json` records line coverage for production sources and requires 90% for new files.
-  Update with `yarn security:coverage:update` after reviewing uncovered lines.
+  The gate also requires every executable production Solidity source to appear in LCOV. Update with
+  `yarn security:coverage:update` after reviewing uncovered lines.
 - `security/osv-baseline.json` records reviewed exact vulnerability tuples while preserving full report visibility.
   Update with `yarn security:dependencies:update` only after dependency triage.
 

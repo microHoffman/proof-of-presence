@@ -4,6 +4,7 @@ pragma solidity 0.8.35;
 import {VillageAccess} from "../../src/village/access/VillageAccess.sol";
 import {VillageRoles} from "../../src/village/access/VillageRoles.sol";
 import {ERC1967ProxyForTest} from "../../src/village/test/ERC1967ProxyForTest.sol";
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {TestBase} from "./TestBase.sol";
 
 contract VillageAccessTest is TestBase {
@@ -29,6 +30,14 @@ contract VillageAccessTest is TestBase {
         assertTrue(access.hasRole(VillageRoles.MINTER_ROLE, minter));
         assertTrue(access.hasRole(VillageRoles.BOOKING_MANAGER_ROLE, manager));
         assertEq(access.CITIZEN_OPERATOR_ROLE(), keccak256("CITIZEN_OPERATOR_ROLE"));
+    }
+
+    function test_ExposesEveryOperationalRoleAndAccessControlInterface() public view {
+        assertEq(access.MINTER_ROLE(), VillageRoles.MINTER_ROLE);
+        assertEq(access.BOOKING_MANAGER_ROLE(), VillageRoles.BOOKING_MANAGER_ROLE);
+        assertEq(access.BOOKING_PLATFORM_ROLE(), VillageRoles.BOOKING_PLATFORM_ROLE);
+        assertTrue(access.supportsInterface(type(IAccessControl).interfaceId));
+        assertFalse(access.supportsInterface(0xffffffff));
     }
 
     function test_RejectsDefaultAdminInTheInitialGrantList() public {
@@ -87,5 +96,17 @@ contract VillageAccessTest is TestBase {
         vm.prank(minter);
         vm.expectRevert();
         access.setRoleAdmin(keccak256("FUTURE_ROLE"), VillageRoles.MINTER_ROLE);
+    }
+
+    function test_DefaultAdminCanRevokeAndHolderCanRenounceRoles() public {
+        vm.prank(admin);
+        access.revokeRole(VillageRoles.MINTER_ROLE, minter);
+        assertFalse(access.hasRole(VillageRoles.MINTER_ROLE, minter));
+
+        vm.prank(admin);
+        access.grantRole(VillageRoles.MINTER_ROLE, minter);
+        vm.prank(minter);
+        access.renounceRole(VillageRoles.MINTER_ROLE, minter);
+        assertFalse(access.hasRole(VillageRoles.MINTER_ROLE, minter));
     }
 }

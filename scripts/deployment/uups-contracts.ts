@@ -1,4 +1,5 @@
 import {getAddress} from 'ethers';
+import {UUPS_CONTRACTS, type UupsContractName} from './contract-registry.js';
 
 /**
  * Canonical registry for contracts supported by the repository's UUPS deployment and upgrade workflows.
@@ -7,17 +8,7 @@ import {getAddress} from 'ethers';
  * the live upgrade authority. A future UUPS contract with different authority semantics must add an explicit adapter
  * here rather than silently falling through to Ownable behavior.
  */
-export const UUPS_CONTRACTS = {
-  VillageAccess: {authority: 'default-admin'},
-  CommunityToken: {authority: 'ownable'},
-  VillagePresenceToken: {authority: 'ownable'},
-  VillageSweatToken: {authority: 'ownable'},
-  TokenizedStays: {authority: 'ownable'},
-  VillageCitizenNFT: {authority: 'ownable'},
-  DynamicPriceSale: {authority: 'ownable'},
-} as const;
-
-export type UupsContractName = keyof typeof UUPS_CONTRACTS;
+export {UUPS_CONTRACTS, type UupsContractName} from './contract-registry.js';
 
 export interface UpgradeAuthority {
   current: string;

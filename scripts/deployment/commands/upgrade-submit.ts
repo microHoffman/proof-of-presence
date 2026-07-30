@@ -43,7 +43,16 @@ export async function upgradeSubmitCommand(
     if (!options.safeOptions) throw new Error('SAFE_PROPOSER_PRIVATE_KEY is required for a Safe-owned upgrade');
     const prepare = context.prepareSafeTransaction ?? prepareSafeOwnerActions;
     const propose = context.proposeSafeTransaction ?? proposeSafeOwnerActions;
-    let prepared = upgrade.ownerTransaction;
+    const fresh = await prepare(
+      {type: 'safe', address: upgrade.ownerTransaction.safeAddress},
+      [upgrade.ownerAction],
+      options.safeOptions.provider,
+    );
+    if (!fresh) throw new Error(`${upgrade.contractName} upgrade has no Safe owner action`);
+    let prepared =
+      upgrade.ownerTransaction.safeTxHash.toLowerCase() === fresh.safeTxHash.toLowerCase()
+        ? upgrade.ownerTransaction
+        : fresh;
     let proposal = await propose(manifest.chainId, prepared, options.safeOptions);
     if (proposal.status === 'failed') {
       const failedHash = prepared.safeTxHash;

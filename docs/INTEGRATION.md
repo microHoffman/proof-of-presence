@@ -49,6 +49,11 @@ Booking inputs are `{year, dayOfYear, pricePerDate}`. TokenizedStays records ent
 inventory, room assignment, confirmation, check-in, and other product workflow states remain off-chain. Zero-price
 dates are valid entitlements.
 
+The booking functions are permissionless and do not authenticate a backend quote: each caller chooses its own dates
+and prices. Never treat a successful transaction or indexed `BookingCreated` event as evidence that the backend
+approved the price, inventory, or reservation. Validate the authenticated product request off chain before presenting
+it as a real stay.
+
 Deposit reads are already supported:
 
 - `depositedBalanceOf(account)` returns the account's total credited deposit, including the portion currently locked.

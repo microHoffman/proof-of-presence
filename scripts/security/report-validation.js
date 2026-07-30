@@ -1,6 +1,3 @@
-import {existsSync, readFileSync} from 'node:fs';
-import path from 'node:path';
-
 export function parseOsvReport(output) {
   if (!output?.trim()) {
     throw new Error('OSV-Scanner produced no report output; refusing to evaluate or update the dependency baseline.');
@@ -73,27 +70,48 @@ export function provedSmtPropertyIds(output) {
   return ids;
 }
 
-export function loadStorageLayout(artifact, buildInfoRoot = 'artifacts/build-info') {
-  if (!artifact.buildInfoId) {
-    throw new Error(
-      `${artifact.contractName}: artifact has no buildInfoId; recompile with \`hardhat compile --force\`.`,
-    );
-  }
-  const buildInfoPath = path.join(buildInfoRoot, `${artifact.buildInfoId}.output.json`);
-  if (!existsSync(buildInfoPath)) throw new Error(`Missing ${buildInfoPath} for ${artifact.contractName}.`);
-  const buildInfo = JSON.parse(readFileSync(buildInfoPath, 'utf8'));
-  const contracts = buildInfo.output?.contracts ?? {};
-  const source =
-    contracts[`project/${artifact.sourceName}`]?.[artifact.contractName] ??
-    contracts[artifact.sourceName]?.[artifact.contractName];
-  if (!source?.storageLayout) {
-    throw new Error(
-      `${artifact.contractName}: no storageLayout in ${buildInfoPath}; enable the storageLayout compiler output.`,
-    );
-  }
-  return source.storageLayout;
-}
-
 export function baselineContractsMissingFromCurrent(baselineContracts, currentContracts) {
   return Object.keys(baselineContracts).filter((contractName) => !currentContracts[contractName]);
+}
+
+export function artifactBaselineFailures(baselineContracts, currentContracts, maximumBytecodeBytes) {
+  const failures = [];
+  for (const [contractName, actual] of Object.entries(currentContracts)) {
+    const expected = baselineContracts[contractName];
+    if (!expected) {
+      failures.push(`${contractName}: missing committed baseline`);
+      continue;
+    }
+    if (actual.sourceName !== expected.sourceName) {
+      failures.push(`${contractName}: source changed from ${expected.sourceName} to ${actual.sourceName}`);
+    }
+    if (actual.deployedBytecodeBytes > maximumBytecodeBytes) {
+      failures.push(
+        `${contractName}: ${actual.deployedBytecodeBytes} byte runtime exceeds EIP-170's ${maximumBytecodeBytes} byte limit`,
+      );
+    }
+    if (actual.deployedBytecodeSha256 !== expected.deployedBytecodeSha256) {
+      failures.push(`${contractName}: deployed bytecode differs from the reviewed baseline`);
+    }
+    for (const [signature, selector] of Object.entries(expected.functions)) {
+      if (actual.functions[signature] !== selector) {
+        failures.push(`${contractName}: removed or changed function ${signature} (${selector})`);
+      }
+    }
+    for (const [signature, topic] of Object.entries(expected.events)) {
+      if (actual.events[signature] !== topic) {
+        failures.push(`${contractName}: removed or changed event ${signature} (${topic})`);
+      }
+    }
+    for (const signature of Object.keys(actual.functions)) {
+      if (!(signature in expected.functions)) failures.push(`${contractName}: added function ${signature}`);
+    }
+    for (const signature of Object.keys(actual.events)) {
+      if (!(signature in expected.events)) failures.push(`${contractName}: added event ${signature}`);
+    }
+  }
+  for (const contractName of baselineContractsMissingFromCurrent(baselineContracts, currentContracts)) {
+    failures.push(`${contractName}: present in baseline but no longer analyzed`);
+  }
+  return failures;
 }

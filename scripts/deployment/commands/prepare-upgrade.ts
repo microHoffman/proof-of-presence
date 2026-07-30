@@ -80,6 +80,13 @@ export async function prepareUpgradeCommand(
     console.log(`${options.contractName} upgrade reconciled: ${liveImplementation}`);
     return manifest;
   }
+  if (manifest.status !== 'complete') {
+    throw new Error('Ownership handoff must be complete before preparing an upgrade');
+  }
+  const authority = await readUpgradeAuthority(options.contractName, record.address, context.ethers);
+  if (authority.pending !== ZeroAddress) {
+    throw new Error(`Ownership transfer to ${authority.pending} must complete before preparing an upgrade`);
+  }
 
   const currentArtifact = record.artifact;
   const currentFactory = await context.ethers.getContractFactory(currentArtifact);
@@ -133,12 +140,6 @@ export async function prepareUpgradeCommand(
     data,
     reason: `Upgrade ${options.contractName} to release ${options.version}`,
   };
-  const authority = await readUpgradeAuthority(options.contractName, record.address, context.ethers);
-  if (authority.pending !== ZeroAddress) {
-    console.warn(
-      `Warning: ownership transfer to ${authority.pending} is pending; current authority is ${authority.current}`,
-    );
-  }
   // Simulate from the live authority to check authorization and optional migration calldata without changing state.
   await context.ethers.provider.call({from: authority.current, to: record.address, data});
   const owner = await classifyAuthority(authority.current, context);
@@ -172,8 +173,17 @@ export async function prepareUpgradeCommand(
 }
 
 async function classifyAuthority(address: string, context: PrepareUpgradeContext): Promise<FinalOwnerConfig> {
-  const owner: FinalOwnerConfig =
-    (await context.ethers.provider.getCode(address)) === '0x' ? {type: 'eoa', address} : {type: 'safe', address};
+  if ((await context.ethers.provider.getCode(address)) === '0x') return {type: 'eoa', address};
+  const safe = await context.ethers.getContractAt(
+    ['function getOwners() view returns (address[])', 'function getThreshold() view returns (uint256)'],
+    address,
+  );
+  const owner: FinalOwnerConfig = {
+    type: 'safe',
+    address,
+    expectedOwners: (await safe.getOwners()).map(getAddress),
+    expectedThreshold: Number(await safe.getThreshold()),
+  };
   await validateOwnerAuthority(owner, context);
   return owner;
 }

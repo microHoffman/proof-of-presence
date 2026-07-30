@@ -42,14 +42,19 @@ export async function submitOwnershipHandoff(
   if (owner.type === 'safe') {
     if (!safeOptions) throw new Error('Safe proposal options are required for a Safe handoff');
     const prepare = context.prepareSafeTransaction ?? prepareSafeOwnerActions;
-    let prepared = reconciled.handoffTransaction ?? (await prepare(owner, actions, safeOptions.provider));
-    if (!prepared) throw new Error('Deployment has no pending ownership handoff actions');
+    const fresh = await prepare(owner, actions, safeOptions.provider);
+    if (!fresh) throw new Error('Deployment has no pending ownership handoff actions');
+    let prepared =
+      reconciled.handoffTransaction?.safeTxHash.toLowerCase() === fresh.safeTxHash.toLowerCase()
+        ? reconciled.handoffTransaction
+        : fresh;
     const propose = context.proposeSafeTransaction ?? proposeSafeOwnerActions;
     let proposal = await propose(reconciled.chainId, prepared, safeOptions);
     if (proposal.status === 'failed') {
       const failedHash = prepared.safeTxHash;
-      prepared = await prepare(owner, actions, safeOptions.provider);
-      if (!prepared) throw new Error('Deployment has no pending ownership handoff actions');
+      const replacement = await prepare(owner, actions, safeOptions.provider);
+      if (!replacement) throw new Error('Deployment has no pending ownership handoff actions');
+      prepared = replacement;
       if (prepared.safeTxHash.toLowerCase() === failedHash.toLowerCase()) {
         throw new Error('Failed Safe handoff cannot be retried until the Safe nonce advances');
       }

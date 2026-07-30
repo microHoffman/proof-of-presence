@@ -116,6 +116,30 @@ describe('TokenizedStays permit integration', function () {
     expect(await token.nonces(member.address)).to.equal(1n);
   });
 
+  it('falls back to sufficient existing allowance after any permit failure', async function () {
+    const {member, relayer, token, stays} = await setup();
+    const amount = parseEther('3');
+    const latest = await ethers.provider.getBlock('latest');
+    const deadline = BigInt(latest!.timestamp + 3_600);
+    await token.connect(member).approve(await stays.getAddress(), amount);
+    const invalidSignature = await signPermit(
+      token,
+      relayer,
+      member.address,
+      await stays.getAddress(),
+      amount,
+      deadline,
+    );
+
+    await stays
+      .connect(member)
+      .depositWithPermit(amount, deadline, invalidSignature.v, invalidSignature.r, invalidSignature.s);
+
+    expect(await stays.depositedBalanceOf(member.address)).to.equal(amount);
+    expect(await token.allowance(member.address, await stays.getAddress())).to.equal(0n);
+    expect(await token.nonces(member.address)).to.equal(0n);
+  });
+
   it('permits and pulls only a partially funded booking deficit', async function () {
     const {member, token, stays} = await setup();
     const price = parseEther('5');

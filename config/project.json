@@ -13,6 +13,7 @@
     ["src/village/tokens/VillageSweatToken.sol", "VillageSweatToken"],
     ["src/village/stays/TokenizedStays.sol", "TokenizedStays"],
     ["src/village/sales/DynamicPriceSale.sol", "DynamicPriceSale"],
+    ["src/village/proxy/VillageUUPSProxy.sol", "VillageUUPSProxy"],
     ["src/profiles/tdf/TDFTransferPolicy.sol", "TDFTransferPolicy"],
     ["src/profiles/tdf/TDFV1BondingCurve.sol", "TDFV1BondingCurve"]
   ]

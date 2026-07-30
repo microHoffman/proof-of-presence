@@ -15,9 +15,9 @@ production security coverage. There is no separate historical source or deployme
 `VillageAccess` is the shared role authority. It uses enumerable access control and delayed default-admin transfer.
 The operational roles are:
 
-- `MINTER_ROLE` for CommunityToken mint/burn operations.
-- `BOOKING_MANAGER_ROLE` for managed TokenizedStays cancellation.
-- `BOOKING_PLATFORM_ROLE` for Presence/Sweat issuance.
+- `MINTER_ROLE` for CommunityToken mint and allowance-free role burn operations.
+- `BOOKING_MANAGER_ROLE` for managed TokenizedStays cancellation and Presence/Sweat mint/burn operations.
+- `BOOKING_PLATFORM_ROLE` for Presence/Sweat mint/burn operations.
 - `CITIZEN_OPERATOR_ROLE` for citizenship issuance, operator burn, and lost-wallet recovery.
 
 `CommunityToken` is an ERC-20/ERC-2612 token with pausing, role-based mint/burn, an owner-adjustable maximum supply,
@@ -30,10 +30,14 @@ CommunityToken's live `totalSupply()`. External mints and burns therefore move t
 design; the TDF policy only prevents burns that would leave the V1 sale outside its safe operating supply. A purchase
 splits the curve-calculated total payment between the village treasury and Closer; the fee is included in the curve
 cost rather than added on top. Fixed launch limits live in proxy storage, while the village owner may replace the
-curve, treasury, and atomic fee configuration, pause purchases, or upgrade the sale.
+curve, treasury, and atomic fee configuration, pause purchases, or upgrade the sale. A replacement curve must expose
+the expected interface and quote-token decimals and successfully price the current supply plus the currently feasible
+configured purchase boundaries.
 
 `VillagePresenceToken` and `VillageSweatToken` are non-transferable decaying tokens over the same implementation
 base. Their readable balances decay with time while mint/burn accounting and holder checkpoints preserve provenance.
+The owner may change the global rate, but existing holders are not checkpointed as one atomic epoch; the accepted
+path-dependent consequence is documented in the threat model.
 
 `TokenizedStays` holds CommunityToken deposits and records calendar-day entitlements with a price for each date. It
 enforces a fixed 365-day lock window, Gregorian date validity, a bounded booking horizon, pause controls, and
@@ -112,6 +116,9 @@ EOA accepts the pending authorities directly; a Safe accepts them in one prepare
 Service state is advisory and no polling loop is required: a one-time reconciliation reads the contracts themselves,
 which are the completion authority. The API operator receives only configured operational roles and has no upgrade
 authority. It is never implicitly made a Citizen operator.
+
+The complete authority assumptions and intentionally accepted limitations are recorded in
+[Threat model](./THREAT_MODEL.md).
 
 ## Build boundary
 

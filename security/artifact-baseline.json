@@ -1,9 +1,9 @@
 {
-  "format": 1,
+  "format": 2,
   "contracts": {
     "CommunityToken": {
-      "deployedBytecodeBytes": 12494,
-      "deployedBytecodeSha256": "2d6273c24fea395d060c72275a3bd4ae0342e6bf5c72a69a0213643f3a28e62f",
+      "deployedBytecodeBytes": 12500,
+      "deployedBytecodeSha256": "8a701ae9e899d9824daf4d828c94aa8c67098252e3c3e7826ce22f378eaf3f7d",
       "events": {
         "Approval(address,address,uint256)": "0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925",
         "EIP712DomainChanged()": "0x0a6387c9ea3628b88a633bb4f3b151770f70085117a15f9bf3787cda53f13d31",
@@ -55,12 +55,11 @@
         "unpause()": "0x3f4ba83a",
         "upgradeToAndCall(address,bytes)": "0x4f1ef286"
       },
-      "sourceName": "src/village/tokens/CommunityToken.sol",
-      "storageLayoutSha256": "f846b023549275be2e0c1636ca4bec256cd67a0365c39781e76ec879398473a8"
+      "sourceName": "src/village/tokens/CommunityToken.sol"
     },
     "DynamicPriceSale": {
-      "deployedBytecodeBytes": 11796,
-      "deployedBytecodeSha256": "ef769e4b4a709fa9321f894ea6d5008201008b3e45d5e504251fddc956220c41",
+      "deployedBytecodeBytes": 12972,
+      "deployedBytecodeSha256": "bb776e0921e6a6f4cd8331d66124f6f6d5328c877312eea9a435f83804c387ce",
       "events": {
         "BondingCurveChanged(address,address)": "0xdf90cc83652c5e691b578d1482fc55fc1f78f4d5872f36048dfccb9058586db6",
         "CloserFeeConfigurationChanged(uint16,uint16,address,address)": "0x98a584ca8e6e95bb3951e9e3076816713c8ebe52ad2680811f20977f89c2a866",
@@ -97,8 +96,7 @@
         "unpause()": "0x3f4ba83a",
         "upgradeToAndCall(address,bytes)": "0x4f1ef286"
       },
-      "sourceName": "src/village/sales/DynamicPriceSale.sol",
-      "storageLayoutSha256": "f846b023549275be2e0c1636ca4bec256cd67a0365c39781e76ec879398473a8"
+      "sourceName": "src/village/sales/DynamicPriceSale.sol"
     },
     "TDFTransferPolicy": {
       "deployedBytecodeBytes": 2288,
@@ -126,8 +124,7 @@
         "transfersRestricted()": "0x8423df79",
         "treasury()": "0x61d027b3"
       },
-      "sourceName": "src/profiles/tdf/TDFTransferPolicy.sol",
-      "storageLayoutSha256": "a43597255c8ff493d171b28ffb9b056a527e3aa0fa7ca84bdfa5ef33f04572b3"
+      "sourceName": "src/profiles/tdf/TDFTransferPolicy.sol"
     },
     "TDFV1BondingCurve": {
       "deployedBytecodeBytes": 2383,
@@ -142,8 +139,7 @@
         "quoteTokenDecimals()": "0x27624b07",
         "supportsInterface(bytes4)": "0x01ffc9a7"
       },
-      "sourceName": "src/profiles/tdf/TDFV1BondingCurve.sol",
-      "storageLayoutSha256": "f846b023549275be2e0c1636ca4bec256cd67a0365c39781e76ec879398473a8"
+      "sourceName": "src/profiles/tdf/TDFV1BondingCurve.sol"
     },
     "TokenizedStays": {
       "deployedBytecodeBytes": 20849,
@@ -213,8 +209,7 @@
         "withdraw(uint256)": "0x2e1a7d4d",
         "withdrawMax()": "0xe5cd8b6a"
       },
-      "sourceName": "src/village/stays/TokenizedStays.sol",
-      "storageLayoutSha256": "f846b023549275be2e0c1636ca4bec256cd67a0365c39781e76ec879398473a8"
+      "sourceName": "src/village/stays/TokenizedStays.sol"
     },
     "VillageAccess": {
       "deployedBytecodeBytes": 9490,
@@ -262,8 +257,7 @@
         "supportsInterface(bytes4)": "0x01ffc9a7",
         "upgradeToAndCall(address,bytes)": "0x4f1ef286"
       },
-      "sourceName": "src/village/access/VillageAccess.sol",
-      "storageLayoutSha256": "f846b023549275be2e0c1636ca4bec256cd67a0365c39781e76ec879398473a8"
+      "sourceName": "src/village/access/VillageAccess.sol"
     },
     "VillageCitizenNFT": {
       "deployedBytecodeBytes": 14992,
@@ -327,8 +321,7 @@
         "transferOwnership(address)": "0xf2fde38b",
         "upgradeToAndCall(address,bytes)": "0x4f1ef286"
       },
-      "sourceName": "src/village/citizenship/VillageCitizenNFT.sol",
-      "storageLayoutSha256": "f846b023549275be2e0c1636ca4bec256cd67a0365c39781e76ec879398473a8"
+      "sourceName": "src/village/citizenship/VillageCitizenNFT.sol"
     },
     "VillagePresenceToken": {
       "deployedBytecodeBytes": 12152,
@@ -388,8 +381,7 @@
         "transferOwnership(address)": "0xf2fde38b",
         "upgradeToAndCall(address,bytes)": "0x4f1ef286"
       },
-      "sourceName": "src/village/tokens/VillagePresenceToken.sol",
-      "storageLayoutSha256": "f846b023549275be2e0c1636ca4bec256cd67a0365c39781e76ec879398473a8"
+      "sourceName": "src/village/tokens/VillagePresenceToken.sol"
     },
     "VillageSweatToken": {
       "deployedBytecodeBytes": 12152,
@@ -449,8 +441,16 @@
         "transferOwnership(address)": "0xf2fde38b",
         "upgradeToAndCall(address,bytes)": "0x4f1ef286"
       },
-      "sourceName": "src/village/tokens/VillageSweatToken.sol",
-      "storageLayoutSha256": "f846b023549275be2e0c1636ca4bec256cd67a0365c39781e76ec879398473a8"
+      "sourceName": "src/village/tokens/VillageSweatToken.sol"
+    },
+    "VillageUUPSProxy": {
+      "deployedBytecodeBytes": 176,
+      "deployedBytecodeSha256": "f3a8767e49ac206881676550cd4428aa2d232a1f59763c20d506c2c30f60428e",
+      "events": {
+        "Upgraded(address)": "0xbc7cd75a20ee27fd9adebab32041f755214dbc6bffa90cc0225b39da2e5c2d3b"
+      },
+      "functions": {},
+      "sourceName": "src/village/proxy/VillageUUPSProxy.sol"
     }
   }
 }

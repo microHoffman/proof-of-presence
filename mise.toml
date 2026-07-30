@@ -78,3 +78,15 @@ run = [
   "yarn test:deep",
   "yarn security:coverage",
 ]
+
+[tasks."security:preaudit"]
+description = "Run the complete audit-candidate gate from a clean source revision"
+run = [
+  "node scripts/security/write-audit-metadata.js",
+  "mise run check",
+  "mise run security:static",
+  "mise run security:deep",
+  "mise run security:aderyn",
+  "mise run security:wake",
+  "mise run security:gambit",
+]

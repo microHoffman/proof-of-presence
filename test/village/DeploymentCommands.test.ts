@@ -6,7 +6,7 @@ import hre from 'hardhat';
 import {upgrades as createUpgradesApi} from '@openzeppelin/hardhat-upgrades';
 import {ZeroAddress} from 'ethers';
 import {connection, ethers} from '../hardhat.js';
-import {parseVillageDeploymentConfig} from '../../scripts/deployment/config.js';
+import {parseVillageDeploymentConfig} from '../../scripts/deployment/spec.js';
 import {ownerStatusCommand} from '../../scripts/deployment/commands/owner-status.js';
 import {ownerSubmitCommand} from '../../scripts/deployment/commands/owner-submit.js';
 import {prepareUpgradeCommand} from '../../scripts/deployment/commands/prepare-upgrade.js';
@@ -172,13 +172,13 @@ describe('Deployment operator commands', function () {
     });
   });
 
-  it('replaces a failed Safe upgrade transaction before proposing again', async function () {
+  it('replaces a stale persisted Safe upgrade transaction before proposing', async function () {
     const {manifestPath} = await deployAccess('command-retry-safe-upgrade');
     const manifest = await prepare(manifestPath, 'safe-retry');
     const upgrade = manifest.upgrades![0];
-    const failed = safeTransaction('11', 0);
-    const replacement = safeTransaction('22', 1);
-    upgrade.ownerTransaction = failed;
+    const stale = safeTransaction('11', 0);
+    const fresh = safeTransaction('22', 1);
+    upgrade.ownerTransaction = stale;
     await writeVillageDeploymentManifest(manifestPath, manifest);
 
     const proposed: string[] = [];
@@ -191,7 +191,39 @@ describe('Deployment operator commands', function () {
       {
         ethers,
         networkName: 'default',
-        prepareSafeTransaction: async () => replacement,
+        prepareSafeTransaction: async () => fresh,
+        proposeSafeTransaction: async (_chainId, transaction) => {
+          proposed.push(transaction.safeTxHash);
+          return {status: 'submitted' as const, transaction};
+        },
+      },
+    );
+
+    expect(proposed).to.deep.equal([fresh.safeTxHash]);
+    expect(updated.upgrades![0].ownerTransaction).to.deep.equal(fresh);
+    expect((await readVillageDeploymentManifest(manifestPath)).upgrades![0].ownerTransaction).to.deep.equal(fresh);
+  });
+
+  it('re-prepares a failed current Safe upgrade with the next nonce', async function () {
+    const {manifestPath} = await deployAccess('command-failed-safe-upgrade-retry');
+    const manifest = await prepare(manifestPath, 'safe-failed-retry');
+    const current = safeTransaction('22', 1);
+    const replacement = safeTransaction('33', 2);
+    manifest.upgrades![0].ownerTransaction = safeTransaction('11', 0);
+    await writeVillageDeploymentManifest(manifestPath, manifest);
+
+    const prepared = [current, replacement];
+    const proposed: string[] = [];
+    const updated = await upgradeSubmitCommand(
+      {
+        manifestPath,
+        upgrade: 'VillageAccess:safe-failed-retry',
+        safeOptions: {provider: connection.provider, signer: SAFE_ADDRESS},
+      },
+      {
+        ethers,
+        networkName: 'default',
+        prepareSafeTransaction: async () => prepared.shift(),
         proposeSafeTransaction: async (_chainId, transaction) => {
           proposed.push(transaction.safeTxHash);
           return {
@@ -202,11 +234,22 @@ describe('Deployment operator commands', function () {
       },
     );
 
-    expect(proposed).to.deep.equal([failed.safeTxHash, replacement.safeTxHash]);
+    expect(proposed).to.deep.equal([current.safeTxHash, replacement.safeTxHash]);
     expect(updated.upgrades![0].ownerTransaction).to.deep.equal(replacement);
-    expect((await readVillageDeploymentManifest(manifestPath)).upgrades![0].ownerTransaction).to.deep.equal(
-      replacement,
-    );
+  });
+
+  it('blocks upgrade preparation while ownership handoff is pending', async function () {
+    const {manifestPath} = await deployAccess('command-pending-handoff-upgrade', 1);
+
+    let failure: Error | undefined;
+    try {
+      await prepare(manifestPath, 'blocked-by-handoff');
+    } catch (error) {
+      failure = error as Error;
+    }
+
+    expect(failure?.message).to.equal('Ownership handoff must be complete before preparing an upgrade');
+    expect((await readVillageDeploymentManifest(manifestPath)).upgrades).to.equal(undefined);
   });
 
   it('surfaces failed Safe upgrade status without rewriting the manifest', async function () {

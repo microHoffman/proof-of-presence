@@ -8,9 +8,6 @@
   "engines": {
     "node": ">=22.19.0"
   },
-  "resolutions": {
-    "fast-uri": "3.1.4"
-  },
   "repository": "github:closerdao/proof-of-presence",
   "author": "Closer Dao",
   "license": "MIT",
@@ -57,7 +54,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "lint": "eslint \"**/*.{js,ts}\" && yarn lint:solidity",
+    "lint": "eslint --max-warnings 0 \"**/*.{js,ts}\" && yarn lint:solidity",
     "lint:fix": "eslint --fix \"**/*.{js,ts}\" && yarn lint:solidity:fix",
     "lint:solidity": "solhint --max-warnings 0 --disc --noPoster \"src/village/**/*.sol\" \"src/profiles/tdf/**/*.sol\"",
     "lint:solidity:fix": "solhint --fix --disc --noPoster \"src/village/**/*.sol\" \"src/profiles/tdf/**/*.sol\"",

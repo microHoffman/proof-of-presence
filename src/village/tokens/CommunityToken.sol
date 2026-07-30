@@ -156,11 +156,8 @@ contract CommunityToken is
     }
 
     /// @notice Returns the owner-governed ceiling enforced for the token's total supply.
-    /// @dev A zero storage value can exist only on proxies upgraded from the pre-cap implementation and is treated
-    /// as unlimited until the owner explicitly configures a ceiling. New proxies must initialize a nonzero ceiling.
     function maxSupply() public view returns (uint256) {
-        uint256 configuredMaxSupply = _getCommunityTokenStorage().maxSupply;
-        return configuredMaxSupply == 0 ? type(uint256).max : configuredMaxSupply;
+        return _getCommunityTokenStorage().maxSupply;
     }
 
     /// @notice Changes the token-wide minting ceiling.

@@ -6,7 +6,7 @@ import hre from 'hardhat';
 import {upgrades as createUpgradesApi} from '@openzeppelin/hardhat-upgrades';
 import {MaxUint256, ZeroAddress, ZeroHash} from 'ethers';
 import {connection, ethers} from '../hardhat.js';
-import {parseTdfDeploymentConfig, parseVillageDeploymentConfig} from '../../scripts/deployment/config.js';
+import {parseTdfDeploymentConfig, parseVillageDeploymentConfig} from '../../scripts/deployment/spec.js';
 import {deployVillage, parseVillageDeploymentManifest, ROLE_IDS} from '../../scripts/deployment/village.js';
 import {TDF_MINIMUM_OPERATING_SUPPLY} from '../../scripts/deployment/spec.js';
 
@@ -195,6 +195,34 @@ describe('Village deployment interface', function () {
       failure = error as Error;
     }
     expect(failure?.message).to.include('Deployment manifest collision');
+  });
+
+  it('rejects unexpected members of security-relevant roles during reconciliation', async function () {
+    const [deployer, operator] = await ethers.getSigners();
+    const spec = parseVillageDeploymentConfig({
+      schemaVersion: 2,
+      villageSlug: 'role-drift-test',
+      chainId: await chainId(),
+      contracts: ['VillageAccess'],
+      finalOwner: {type: 'eoa', address: deployer.address},
+      apiOperator: operator.address,
+    });
+    const context = deploymentContext(await outputRoot());
+    const first = await deployVillage(spec, context);
+    const access = await ethers.getContractAt(
+      'VillageAccess',
+      first.manifest.contracts.VillageAccess.address,
+      deployer,
+    );
+    await (await access.grantRole(ROLE_IDS.MINTER_ROLE, operator.address)).wait();
+
+    let failure: Error | undefined;
+    try {
+      await deployVillage(spec, context);
+    } catch (error) {
+      failure = error as Error;
+    }
+    expect(failure?.message).to.include('MINTER_ROLE members do not match');
   });
 
   it('clears completed ownership actions when the deployment command is rerun', async function () {

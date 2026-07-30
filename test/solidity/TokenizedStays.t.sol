@@ -398,6 +398,8 @@ contract TokenizedStaysTest is TestBase {
     }
 
     function test_RecoversOnlyOrphanedTokensToAValidRecipient() public {
+        vm.prank(member);
+        stays.deposit(7 ether);
         vm.prank(other);
         token.transfer(address(stays), 5 ether);
         assertEq(stays.orphanedTokenBalance(), 5 ether);
@@ -405,6 +407,8 @@ contract TokenizedStaysTest is TestBase {
         emit TokenizedStays.OrphanedTokensRecovered(other, 2 ether);
         stays.recoverOrphanedTokens(other, 2 ether);
         assertEq(stays.orphanedTokenBalance(), 3 ether);
+        assertEq(stays.depositedBalanceOf(member), 7 ether);
+        assertEq(stays.totalDepositedBalance(), 7 ether);
 
         vm.expectPartialRevert(TokenizedStays.RecoveryAmountExceedsOrphanedTokenBalance.selector);
         stays.recoverOrphanedTokens(other, 4 ether);

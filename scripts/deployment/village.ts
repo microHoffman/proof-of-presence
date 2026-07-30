@@ -14,6 +14,8 @@ import {
   contractSelection,
   graphIdForSpec,
   hashResolvedDeploymentSpec,
+  symbolFromSlug,
+  titleFromSlug,
   type ContractSelection,
   type FinalOwnerConfig,
   type ResolvedDeploymentSpec,
@@ -99,6 +101,8 @@ const ACCESS_ADMIN_ABI = [
   'function beginDefaultAdminTransfer(address newAdmin)',
   'function acceptDefaultAdminTransfer()',
   'function hasRole(bytes32,address) view returns (bool)',
+  'function getRoleMemberCount(bytes32) view returns (uint256)',
+  'function getRoleMember(bytes32,uint256) view returns (address)',
 ];
 const SAFE_READ_ABI = [
   'function getOwners() view returns (address[])',
@@ -241,6 +245,14 @@ export async function deployVillage(
     context,
   );
   if (ownerActions.length > 0) throw new Error('Deployer owner actions did not reach their expected state');
+  await verifyRoles(
+    context,
+    contracts,
+    deployerAddress,
+    expectedConfiguredRoleGrants(initialRoleGrants, contracts),
+    false,
+    true,
+  );
   await verifyCompleteWiring(context, contracts, config);
 
   const pendingOwnerActions =
@@ -334,7 +346,14 @@ async function reconcileManifest(
       record.implementation!.runtimeCodeHash = implementationHash;
     }
   }
-  await verifyRoles(context, reconciled.contracts, reconciled.ownership.deployer, initialRoleGrants, true);
+  await verifyRoles(
+    context,
+    reconciled.contracts,
+    reconciled.ownership.deployer,
+    expectedConfiguredRoleGrants(initialRoleGrants, reconciled.contracts),
+    true,
+    true,
+  );
   await verifyCompleteWiring(context, reconciled.contracts, config);
   const ownership = await reconcileOwnershipHandoff(reconciled, context);
   return ownership;
@@ -581,11 +600,9 @@ export async function validateOwnerAuthority(
     throw new Error(`Contract authority ${address} does not expose the required Safe interface`);
   }
   if (threshold < 1 || threshold > actualOwners.length) throw new Error('Safe authority has an invalid threshold');
-  if (owner.expectedOwners) {
-    const expected = owner.expectedOwners.map(getAddress).sort();
-    if (JSON.stringify(expected) !== JSON.stringify(actualOwners)) throw new Error('Safe owners do not match config');
-  }
-  if (owner.expectedThreshold !== undefined && owner.expectedThreshold !== threshold) {
+  const expected = owner.expectedOwners.map(getAddress).sort();
+  if (JSON.stringify(expected) !== JSON.stringify(actualOwners)) throw new Error('Safe owners do not match config');
+  if (owner.expectedThreshold !== threshold) {
     throw new Error('Safe threshold does not match config');
   }
 }
@@ -596,6 +613,7 @@ async function verifyRoles(
   expectedInitialAdmin: string,
   grants: ResolvedRoleGrant[],
   allowAcceptedHandoff = false,
+  exact = false,
 ): Promise<void> {
   if (!contracts.VillageAccess) return;
   const access = await context.ethers.getContractAt(ACCESS_ADMIN_ABI, contracts.VillageAccess.address);
@@ -605,6 +623,31 @@ async function verifyRoles(
   for (const grant of grants) {
     if (!(await access.hasRole(grant.role, grant.account)))
       throw new Error(`Missing ${grant.roleName} for ${grant.account}`);
+  }
+  if (!exact) return;
+
+  const expectedByRole = new Map<string, Set<string>>();
+  for (const role of Object.values(ROLE_IDS)) {
+    if (role !== ROLE_IDS.DEFAULT_ADMIN_ROLE) expectedByRole.set(role.toLowerCase(), new Set());
+  }
+  for (const grant of grants) {
+    const key = grant.role.toLowerCase();
+    const accounts = expectedByRole.get(key) ?? new Set<string>();
+    accounts.add(getAddress(grant.account));
+    expectedByRole.set(key, accounts);
+  }
+  for (const [role, expectedAccounts] of expectedByRole) {
+    const count = Number(await access.getRoleMemberCount(role));
+    const actualAccounts = new Set<string>();
+    for (let index = 0; index < count; index += 1) {
+      actualAccounts.add(getAddress(await access.getRoleMember(role, index)));
+    }
+    if (
+      actualAccounts.size !== expectedAccounts.size ||
+      [...actualAccounts].some((account) => !expectedAccounts.has(account))
+    ) {
+      throw new Error(`${roleName(role)} members do not match the deployment config`);
+    }
   }
 }
 
@@ -686,6 +729,8 @@ async function verifyModuleWiring(
         'function roleAuthority() view returns (address)',
         'function transferPolicy() view returns (address)',
         'function maxSupply() view returns (uint256)',
+        'function name() view returns (string)',
+        'function symbol() view returns (string)',
       ],
       contracts.CommunityToken.address,
     );
@@ -695,18 +740,46 @@ async function verifyModuleWiring(
     if ((await token.maxSupply()) !== BigInt(config.communityToken!.maxSupply!)) {
       throw new Error('CommunityToken max supply mismatch');
     }
+    if ((await token.name()) !== (config.communityToken?.name ?? titleFromSlug(config.villageSlug, 'Token'))) {
+      throw new Error('CommunityToken name mismatch');
+    }
+    if ((await token.symbol()) !== (config.communityToken?.symbol ?? symbolFromSlug(config.villageSlug))) {
+      throw new Error('CommunityToken symbol mismatch');
+    }
   }
-  for (const name of ['VillagePresenceToken', 'VillageSweatToken']) {
+  for (const [name, tokenConfig, defaultSuffix, symbolSuffix] of [
+    ['VillagePresenceToken', config.presenceToken, 'Presence', 'P'],
+    ['VillageSweatToken', config.sweatToken, 'Contribution', 'C'],
+  ] as const) {
     if (!contracts[name]) continue;
     const token = await context.ethers.getContractAt(
-      ['function roleAuthority() view returns (address)'],
+      [
+        'function roleAuthority() view returns (address)',
+        'function decayRatePerDay() view returns (uint256)',
+        'function name() view returns (string)',
+        'function symbol() view returns (string)',
+      ],
       contracts[name].address,
     );
     if (getAddress(await token.roleAuthority()) !== accessAddress) throw new Error(`${name} authority mismatch`);
+    if ((await token.decayRatePerDay()) !== BigInt(tokenConfig!.decayRatePerDay)) {
+      throw new Error(`${name} decay rate mismatch`);
+    }
+    if ((await token.name()) !== (tokenConfig?.name ?? titleFromSlug(config.villageSlug, defaultSuffix))) {
+      throw new Error(`${name} name mismatch`);
+    }
+    if ((await token.symbol()) !== (tokenConfig?.symbol ?? `${symbolFromSlug(config.villageSlug)}${symbolSuffix}`)) {
+      throw new Error(`${name} symbol mismatch`);
+    }
   }
   if (contracts.VillageCitizenNFT) {
     const citizenNft = await context.ethers.getContractAt(
-      ['function roleAuthority() view returns (address)', 'function baseURI() view returns (string)'],
+      [
+        'function roleAuthority() view returns (address)',
+        'function baseURI() view returns (string)',
+        'function name() view returns (string)',
+        'function symbol() view returns (string)',
+      ],
       contracts.VillageCitizenNFT.address,
     );
     if (getAddress(await citizenNft.roleAuthority()) !== accessAddress) {
@@ -714,6 +787,12 @@ async function verifyModuleWiring(
     }
     if ((await citizenNft.baseURI()) !== config.citizenNft!.baseURI) {
       throw new Error('VillageCitizenNFT base URI mismatch');
+    }
+    if ((await citizenNft.name()) !== (config.citizenNft?.name ?? titleFromSlug(config.villageSlug, 'Citizen'))) {
+      throw new Error('VillageCitizenNFT name mismatch');
+    }
+    if ((await citizenNft.symbol()) !== (config.citizenNft?.symbol ?? `${config.villageSlug} CIT`)) {
+      throw new Error('VillageCitizenNFT symbol mismatch');
     }
   }
   if (contracts.TokenizedStays) {
@@ -853,6 +932,17 @@ function dedupeRoleGrants(grants: ResolvedRoleGrant[]): ResolvedRoleGrant[] {
     seen.add(key);
     return true;
   });
+}
+
+function expectedConfiguredRoleGrants(
+  initialRoleGrants: ResolvedRoleGrant[],
+  contracts: Record<string, ManifestContract>,
+): ResolvedRoleGrant[] {
+  const grants = [...initialRoleGrants];
+  if (contracts.DynamicPriceSale) {
+    grants.push(makeRoleGrant('MINTER_ROLE', getAddress(contracts.DynamicPriceSale.address), 'module-derived'));
+  }
+  return dedupeRoleGrants(grants);
 }
 
 function normalizeAddress(value: unknown, field: string): string {

@@ -128,19 +128,6 @@ contract CommunityTokenTest is TestBase {
         token.setMaxSupply(1 ether);
     }
 
-    function test_LegacyUnsetMaxSupplyRemainsUnlimitedUntilConfigured() public {
-        uint256 maxSupplySlot = erc7201("closer.storage.CommunityToken") + 2;
-        vm.store(address(token), bytes32(maxSupplySlot), bytes32(0));
-
-        assertEq(token.maxSupply(), type(uint256).max);
-        vm.prank(minter);
-        token.mint(holder, 10 ether);
-        assertEq(token.totalSupply(), 10 ether);
-
-        token.setMaxSupply(20 ether);
-        assertEq(token.maxSupply(), 20 ether);
-    }
-
     function test_RoleCanMintAndBurnForAnotherAccount() public {
         vm.prank(minter);
         token.mint(holder, 10 ether);

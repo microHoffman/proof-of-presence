@@ -9,6 +9,9 @@ state, and writes a slim operational manifest.
 Deployment configs and manifests both use `schemaVersion: 2`. The version identifies each strict JSON wire format; it
 is unrelated to contract versions, proxy storage versions, initializer revisions, or Ignition journals. No earlier
 production deployment schema is supported, so removed draft fields fail validation instead of being migrated.
+All unsigned-integer contract values are decimal strings. JSON numbers are rejected even when small, avoiding a
+second representation that becomes unsafe above JavaScript's exact-integer range. Chain IDs, fee basis points, and
+Safe thresholds remain bounded JSON numbers as defined by the schema.
 
 ## Generic config
 
@@ -63,7 +66,12 @@ single-contract deployment engine.
   "schemaVersion": 2,
   "villageSlug": "example-tdf",
   "chainId": 11142220,
-  "finalOwner": {"type": "safe", "address": "0x1111111111111111111111111111111111111111"},
+  "finalOwner": {
+    "type": "safe",
+    "address": "0x1111111111111111111111111111111111111111",
+    "expectedOwners": ["0x2222222222222222222222222222222222222222"],
+    "expectedThreshold": 1
+  },
   "apiOperator": "0x3333333333333333333333333333333333333333",
   "communityToken": {
     "initialSupply": "5381000000000000000000",
@@ -118,7 +126,12 @@ yarn owner:status -- --manifest <manifest.json> --network <network>
 
 EOA and Safe final owners are supported. Safe service data is advisory and is printed, not persisted; live contract
 authority determines completion. If a Safe transaction executes unsuccessfully, rerun the submit command to prepare
-and propose a replacement using the Safe's current nonce.
+and propose a replacement using the Safe's current nonce. Every submission re-derives the still-incomplete actions
+and current Safe transaction; a stale persisted transaction is never proposed when its hash no longer matches.
+
+A Safe config must include the exact expected owners and threshold. Deployment checks code, the Safe read interface,
+membership, and threshold. This deliberately does not attest a particular Safe singleton or release, so operators
+must verify the Safe identity independently.
 
 ## Verification
 
@@ -142,4 +155,5 @@ yarn upgrade:status -- --manifest <manifest.json> --upgrade <name>:<version> [--
 Preparation validates storage/UUPS compatibility, deploys the implementation through Ignition, hashes its bytecode,
 simulates `upgradeToAndCall` from live authority, and records a Safe or EOA action. Execution is accepted only after
 the ERC-1967 slot, implementation code hash, and exact `Upgraded` event reconcile. A failed Safe proposal is reported
-by the status command and replaced by the next submit command.
+by the status command and replaced by the next submit command. Preparation is blocked until the deployment ownership
+handoff is complete and no ownership/default-admin transfer remains pending.

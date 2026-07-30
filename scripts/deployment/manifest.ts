@@ -108,14 +108,33 @@ const manifestLogReference = manifestBlockReference.extend({
   transactionIndex: z.number().int().nonnegative(),
   logIndex: z.number().int().nonnegative(),
 });
-const manifestOwner = z.discriminatedUnion('type', [
-  z.strictObject({type: z.literal('eoa'), address: manifestAddress}),
-  z.strictObject({
+const manifestSafeOwner = z
+  .strictObject({
     type: z.literal('safe'),
     address: manifestAddress,
-    expectedOwners: z.array(manifestAddress).optional(),
-    expectedThreshold: z.number().int().positive().optional(),
-  }),
+    expectedOwners: z.array(manifestAddress).min(1),
+    expectedThreshold: z.number().int().positive(),
+  })
+  .superRefine((owner, context) => {
+    const normalizedOwners = owner.expectedOwners.map((value) => value.toLowerCase());
+    if (new Set(normalizedOwners).size !== normalizedOwners.length) {
+      context.addIssue({
+        code: 'custom',
+        path: ['expectedOwners'],
+        message: 'must not contain duplicate owners',
+      });
+    }
+    if (owner.expectedThreshold > owner.expectedOwners.length) {
+      context.addIssue({
+        code: 'custom',
+        path: ['expectedThreshold'],
+        message: 'must not exceed the number of expected owners',
+      });
+    }
+  });
+const manifestOwner = z.discriminatedUnion('type', [
+  z.strictObject({type: z.literal('eoa'), address: manifestAddress}),
+  manifestSafeOwner,
 ]);
 const manifestOwnerAction = z.strictObject({
   to: manifestAddress,

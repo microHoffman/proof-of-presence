@@ -31,7 +31,7 @@ describe('Owner authority validation', function () {
 
   it('accepts a contract that exposes a valid Safe owner interface', async function () {
     await validateOwnerAuthority(
-      {type: 'safe', address: AUTHORITY},
+      {type: 'safe', address: AUTHORITY, expectedOwners: [OWNER], expectedThreshold: 1},
       {
         networkName: 'default',
         ethers: {
@@ -48,7 +48,7 @@ describe('Owner authority validation', function () {
   it('rejects arbitrary contract authorities before Safe preparation', async function () {
     const message = await rejectionMessage(
       validateOwnerAuthority(
-        {type: 'safe', address: AUTHORITY},
+        {type: 'safe', address: AUTHORITY, expectedOwners: [OWNER], expectedThreshold: 1},
         {
           networkName: 'default',
           ethers: {
@@ -64,5 +64,39 @@ describe('Owner authority validation', function () {
       ),
     );
     expect(message).to.include('does not expose the required Safe interface');
+  });
+
+  it('rejects Safe owner and threshold mismatches', async function () {
+    const context = {
+      networkName: 'default',
+      ethers: {
+        provider: {getCode: async () => '0x6000'},
+        getContractAt: async () => ({
+          getOwners: async () => [OWNER],
+          getThreshold: async () => 1n,
+        }),
+      },
+    };
+    expect(
+      await rejectionMessage(
+        validateOwnerAuthority(
+          {
+            type: 'safe',
+            address: AUTHORITY,
+            expectedOwners: ['0x00000000000000000000000000000000000000B2'],
+            expectedThreshold: 1,
+          },
+          context,
+        ),
+      ),
+    ).to.include('Safe owners do not match');
+    expect(
+      await rejectionMessage(
+        validateOwnerAuthority(
+          {type: 'safe', address: AUTHORITY, expectedOwners: [OWNER], expectedThreshold: 2},
+          context,
+        ),
+      ),
+    ).to.include('Safe threshold does not match');
   });
 });

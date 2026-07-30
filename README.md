@@ -31,7 +31,8 @@ The complete test suite currently contains Solidity fuzz/invariant tests and Typ
 The contract and authority model is described in [Architecture](./docs/ARCHITECTURE.md). Operators deploying a new
 village should follow the [Village deployment runbook](./docs/VILLAGE_DEPLOYMENT_RUNBOOK.md) and use
 [Deployment](./docs/DEPLOYMENT.md) as the detailed reference. API and UI consumers should use
-[Integration](./docs/INTEGRATION.md). Current release work is tracked in
+[Integration](./docs/INTEGRATION.md). Security assumptions and accepted limitations are explicit in the
+[Threat model](./docs/THREAT_MODEL.md). Current release work is tracked in
 [Remaining work](./docs/REMAINING_WORK.md).
 
 ## Common commands

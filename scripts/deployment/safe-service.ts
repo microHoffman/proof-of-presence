@@ -7,7 +7,11 @@ import type {SafeConfig} from '@safe-global/protocol-kit';
 import type {MetaTransactionData, SafeTransactionData} from '@safe-global/types-kit';
 import {getAddress} from 'ethers';
 import type {PendingOwnerAction, PreparedSafeTransaction} from './village.js';
-import type {SafeOwnerConfig} from './spec.js';
+
+interface SafeOwnerIdentity {
+  type: 'safe';
+  address: string;
+}
 
 interface SafeServiceTransaction {
   safe: string;
@@ -83,7 +87,7 @@ export interface SafeServiceStatus {
  * The actions become one atomic call-only Safe transaction; no delegate calls are permitted.
  */
 export async function prepareSafeOwnerActions(
-  owner: SafeOwnerConfig,
+  owner: SafeOwnerIdentity,
   actions: PendingOwnerAction[],
   provider: SafeProposalOptions['provider'],
 ): Promise<PreparedSafeTransaction | undefined> {

@@ -9,7 +9,9 @@ Use [Deployment](./DEPLOYMENT.md) for schema and command details.
 3. For a generic village, list only the contracts the village actually needs. Review the dependencies printed by the
    CLI. For TDF, use the dedicated preset input and do not duplicate locked launch constants.
 4. Confirm chain ID, API operator, treasury/recipient addresses, token parameters, and final owner.
-5. For a Safe owner, verify deployed Safe code, owners, and threshold. Keep deployer and Safe proposer credentials
+5. For a Safe owner, record the exact expected owners and threshold in the config. Verify the intended Safe proxy,
+   singleton/release, chain, deployed code, owners, and threshold independently. The deployment tool validates only
+   code, the Safe read interface, and the configured membership/threshold. Keep deployer and Safe proposer credentials
    separate.
 6. Retain the reviewed config as an immutable release record. Back it up and commit it together with the resulting
    real-network Ignition deployment directory and operational manifest.
@@ -40,7 +42,8 @@ yarn owner:status -- --manifest <manifest.json> --network celo
 ```
 
 4. Require manifest status `complete`, an empty `pendingOwnerActions`, correct live owners/default admin, expected role
-   grants and wiring, nonempty bytecode, matching code hashes, and matching ERC-1967 slots.
+   membership with no unexpected operational-role holders, correct wiring and immutable configuration, nonempty
+   bytecode, matching code hashes, and matching ERC-1967 slots.
 5. Verify with the explicit Ignition command printed by deployment:
 
 ```sh
@@ -74,3 +77,7 @@ yarn upgrade:status -- --manifest <manifest.json> --upgrade <name>:<version> --n
 ```
 
 Commit the updated manifest and the upgrade Ignition directory after review.
+
+Upgrade preparation must reject a `pending-handoff` manifest or any live pending ownership/default-admin transfer.
+For Safe submissions, re-check the proposed batch and nonce in the Safe UI; the command rebuilds the transaction from
+the current incomplete actions and current nonce on every submission.

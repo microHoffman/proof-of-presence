@@ -1,16 +1,11 @@
 #!/usr/bin/env tsx
 import hre from 'hardhat';
 import {upgrades} from '@openzeppelin/hardhat-upgrades';
+import {UUPS_CONTRACTS} from './deployment/contract-registry.js';
 
-const upgradePairs = [
-  ['VillageAccess', 'VillageAccessUpgradeMock'],
-  ['CommunityToken', 'CommunityTokenUpgradeMock'],
-  ['VillagePresenceToken', 'PresenceTokenUpgradeMock'],
-  ['VillageSweatToken', 'SweatTokenUpgradeMock'],
-  ['TokenizedStays', 'TokenizedStaysUpgradeMock'],
-  ['VillageCitizenNFT', 'VillageCitizenNFTUpgradeMock'],
-  ['DynamicPriceSale', 'DynamicPriceSaleUpgradeMock'],
-] as const;
+const upgradePairs = Object.entries(UUPS_CONTRACTS).map(
+  ([contractName, {upgradeTestImplementation}]) => [contractName, upgradeTestImplementation] as const,
+);
 
 async function main(): Promise<void> {
   const connection = await hre.network.create();

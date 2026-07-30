@@ -325,13 +325,16 @@ contract DynamicPriceSale is
     }
 
     /// @notice Replaces the stateless pricing adapter immediately.
-    /// @dev Existing pending transactions remain protected by their `maxPayment` and `deadline`.
+    /// @dev Existing pending transactions remain protected by their `maxPayment` and `deadline`. The replacement must
+    /// quote the sale's current supply and currently feasible configured purchase range.
     /// @param newBondingCurve New ERC-165-compatible curve using the configured quote-token decimals.
     function setBondingCurve(address newBondingCurve) external nonReentrant onlyOwner {
         SaleConfiguration storage configuration = _getDynamicPriceSaleStorage().configuration;
-        // The guard prevents callbacks while interface and decimal compatibility are checked.
+        SaleConfiguration memory candidate = configuration;
+        candidate.bondingCurve = newBondingCurve;
+        // The guard prevents callbacks while interface, decimal, and current operating compatibility are checked.
         // aderyn-fp-next-line(reentrancy-state-change)
-        _validateBondingCurve(newBondingCurve, IERC20Metadata(configuration.quoteToken).decimals());
+        _validateBondingCurve(candidate);
         address oldBondingCurve = configuration.bondingCurve;
         configuration.bondingCurve = newBondingCurve;
         emit BondingCurveChanged(oldBondingCurve, newBondingCurve);
@@ -389,8 +392,7 @@ contract DynamicPriceSale is
         _validatePurchaseLimits(configuration);
         _validateCommunityTokenCapacity(configuration);
 
-        uint8 quoteTokenDecimals = IERC20Metadata(configuration.quoteToken).decimals();
-        _validateBondingCurve(configuration.bondingCurve, quoteTokenDecimals);
+        _validateBondingCurve(configuration);
     }
 
     function _validatePurchaseLimits(SaleConfiguration calldata configuration) private pure {
@@ -435,16 +437,40 @@ contract DynamicPriceSale is
         if (closerFeeRecipient == address(0)) revert InvalidCloserFeeRecipient(closerFeeRecipient);
     }
 
-    function _validateBondingCurve(address bondingCurve, uint8 quoteTokenDecimals) private view {
+    function _validateBondingCurve(SaleConfiguration memory configuration) private view {
+        address bondingCurve = configuration.bondingCurve;
         if (
             bondingCurve.code.length == 0 ||
             !ERC165Checker.supportsInterface(bondingCurve, type(IBondingCurve).interfaceId)
         ) {
             revert InvalidBondingCurve(bondingCurve);
         }
+        uint8 quoteTokenDecimals = IERC20Metadata(configuration.quoteToken).decimals();
         uint8 curveQuoteTokenDecimals = IBondingCurve(bondingCurve).quoteTokenDecimals();
         if (curveQuoteTokenDecimals != quoteTokenDecimals) {
             revert QuoteTokenDecimalsMismatch(quoteTokenDecimals, curveQuoteTokenDecimals);
+        }
+
+        ICommunityToken communityToken = ICommunityToken(configuration.communityToken);
+        uint256 currentSupply = communityToken.totalSupply();
+        IBondingCurve curve = IBondingCurve(bondingCurve);
+        // Only call success is required here; zero is a valid price and must not be rejected.
+        // slither-disable-next-line unused-return
+        curve.currentPrice(currentSupply);
+
+        uint256 effectiveSupplyCap = Math.min(configuration.saleCap, communityToken.maxSupply());
+        if (currentSupply >= effectiveSupplyCap) return;
+        uint256 remainingCapacity = effectiveSupplyCap - currentSupply;
+        if (remainingCapacity < configuration.minimumPurchase) return;
+
+        // Quote values are deliberately unconstrained; these probes validate executable domain boundaries.
+        // slither-disable-next-line unused-return
+        curve.quotePurchase(currentSupply, configuration.minimumPurchase);
+        uint256 feasibleMaximum = Math.min(configuration.maximumPurchase, remainingCapacity);
+        feasibleMaximum -= feasibleMaximum % configuration.purchaseGranularity;
+        if (feasibleMaximum != configuration.minimumPurchase) {
+            // slither-disable-next-line unused-return
+            curve.quotePurchase(currentSupply, feasibleMaximum);
         }
     }
 

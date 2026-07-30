@@ -28,6 +28,7 @@ contract BondingCurveMock is IBondingCurve, ERC165 {
     uint256 public price;
     bool public priceReverts;
     bool public quoteReverts;
+    uint256 public quoteRevertAmount;
 
     error MockCurveError();
 
@@ -45,6 +46,10 @@ contract BondingCurveMock is IBondingCurve, ERC165 {
         quoteReverts = quoteReverts_;
     }
 
+    function setQuoteRevertAmount(uint256 amount) external {
+        quoteRevertAmount = amount;
+    }
+
     function quoteTokenDecimals() external view returns (uint8) {
         return _quoteDecimals;
     }
@@ -58,7 +63,7 @@ contract BondingCurveMock is IBondingCurve, ERC165 {
         uint256,
         uint256 amount
     ) external view returns (uint256 totalPayment, uint256 postPurchasePrice) {
-        if (quoteReverts) revert MockCurveError();
+        if (quoteReverts || amount == quoteRevertAmount) revert MockCurveError();
         totalPayment = Math.mulDiv(amount, price, 1 ether);
         postPurchasePrice = price;
     }

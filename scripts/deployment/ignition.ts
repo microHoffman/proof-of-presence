@@ -20,7 +20,7 @@ import type {
   VillageDeploymentContext,
 } from './village.js';
 import {resolvedCloserFeeBps} from './village.js';
-import {graphHashForContracts, graphIdForSpec} from './spec.js';
+import {graphHashForContracts, graphIdForSpec, symbolFromSlug, titleFromSlug} from './spec.js';
 import type {UupsContractName} from './uups-contracts.js';
 
 export interface IgnitionVillageDeployment {
@@ -301,19 +301,4 @@ export function isPolicyOnlyDeployment(modules: NormalizedModules): boolean {
     !modules.citizenNft &&
     !modules.dynamicPriceSale
   );
-}
-
-function titleFromSlug(slug: string, suffix: string): string {
-  return `${slug
-    .split('-')
-    .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
-    .join(' ')} ${suffix}`;
-}
-
-function symbolFromSlug(slug: string): string {
-  return slug
-    .split('-')
-    .map((part) => part.slice(0, 3).toUpperCase())
-    .join('')
-    .slice(0, 10);
 }

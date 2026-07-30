@@ -296,6 +296,32 @@ contract DynamicPriceSaleTest is TestBase {
         WrongBondingCurveInterface wrongInterface = new WrongBondingCurveInterface();
         vm.expectRevert(abi.encodeWithSelector(DynamicPriceSale.InvalidBondingCurve.selector, address(wrongInterface)));
         sale.setBondingCurve(address(wrongInterface));
+
+        BondingCurveMock priceReverting = new BondingCurveMock(18, 1 ether);
+        priceReverting.setReverts(true, false);
+        vm.expectRevert(BondingCurveMock.MockCurveError.selector);
+        sale.setBondingCurve(address(priceReverting));
+
+        BondingCurveMock minimumQuoteReverting = new BondingCurveMock(18, 1 ether);
+        minimumQuoteReverting.setReverts(false, true);
+        vm.expectRevert(BondingCurveMock.MockCurveError.selector);
+        sale.setBondingCurve(address(minimumQuoteReverting));
+
+        BondingCurveMock maximumQuoteReverting = new BondingCurveMock(18, 1 ether);
+        maximumQuoteReverting.setQuoteRevertAmount(100 ether);
+        vm.expectRevert(BondingCurveMock.MockCurveError.selector);
+        sale.setBondingCurve(address(maximumQuoteReverting));
+
+        authority.grantRole(VillageRoles.MINTER_ROLE, address(this));
+        communityToken.mint(outsider, 799.5 ether);
+        BondingCurveMock dustCapacityCurve = new BondingCurveMock(18, 1 ether);
+        dustCapacityCurve.setReverts(false, true);
+        sale.setBondingCurve(address(dustCapacityCurve));
+
+        communityToken.mint(outsider, 0.5 ether);
+        BondingCurveMock soldOutCurve = new BondingCurveMock(18, 1 ether);
+        soldOutCurve.setReverts(false, true);
+        sale.setBondingCurve(address(soldOutCurve));
     }
 
     function test_RejectsInvalidInitializationConfiguration() public {

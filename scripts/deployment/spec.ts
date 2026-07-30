@@ -1,19 +1,9 @@
 import {getAddress, isAddress, keccak256, toUtf8Bytes, ZeroAddress} from 'ethers';
 import {z} from 'zod';
 import {canonicalJsonStringify} from './canonical-json.js';
+import {CONTRACT_NAMES, type ContractName} from './contract-registry.js';
 
-export const CONTRACT_NAMES = [
-  'TDFTransferPolicy',
-  'VillageAccess',
-  'CommunityToken',
-  'VillagePresenceToken',
-  'VillageSweatToken',
-  'VillageCitizenNFT',
-  'TokenizedStays',
-  'DynamicPriceSale',
-] as const;
-
-export type ContractName = (typeof CONTRACT_NAMES)[number];
+export {CONTRACT_NAMES, type ContractName} from './contract-registry.js';
 export type DeploymentPreset = 'tdf';
 
 const CONTRACT_DEPENDENCIES: Readonly<Record<ContractName, readonly ContractName[]>> = {
@@ -37,14 +27,29 @@ export const TDF_MAXIMUM_RECIPIENT_BALANCE = 915n * 10n ** 18n;
 export const TDF_MINIMUM_OPERATING_SUPPLY = 5_381n * 10n ** 18n;
 export const TDF_DEFAULT_CLOSER_FEE_BPS = 500;
 
+export function titleFromSlug(slug: string, suffix: string): string {
+  return `${slug
+    .split('-')
+    .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
+    .join(' ')} ${suffix}`;
+}
+
+export function symbolFromSlug(slug: string): string {
+  return slug
+    .split('-')
+    .map((part) => part.slice(0, 3).toUpperCase())
+    .join('')
+    .slice(0, 10);
+}
+
 const address = z
   .string()
   .refine(isAddress, 'must be a valid Ethereum address')
   .transform((value) => getAddress(value));
 const nonZeroAddress = address.refine((value) => value !== ZeroAddress, 'must not be the zero address');
 const uint = z
-  .union([z.number().int().nonnegative(), z.string().regex(/^\d+$/, 'must be an unsigned integer')])
-  .transform((value) => BigInt(value).toString());
+  .string({error: 'must be an unsigned integer encoded as a decimal string'})
+  .regex(/^\d+$/, 'must be an unsigned integer encoded as a decimal string');
 const role = z.string().min(1);
 const contractName = z.enum(CONTRACT_NAMES);
 
@@ -53,12 +58,29 @@ const eoaOwner = z.strictObject({
   address: nonZeroAddress,
 });
 
-const safeOwner = z.strictObject({
-  type: z.literal('safe'),
-  address: nonZeroAddress,
-  expectedOwners: z.array(nonZeroAddress).optional(),
-  expectedThreshold: z.number().int().positive().optional(),
-});
+const safeOwner = z
+  .strictObject({
+    type: z.literal('safe'),
+    address: nonZeroAddress,
+    expectedOwners: z.array(nonZeroAddress).min(1),
+    expectedThreshold: z.number().int().positive(),
+  })
+  .superRefine((owner, context) => {
+    if (new Set(owner.expectedOwners).size !== owner.expectedOwners.length) {
+      context.addIssue({
+        code: 'custom',
+        path: ['expectedOwners'],
+        message: 'must not contain duplicate owners',
+      });
+    }
+    if (owner.expectedThreshold > owner.expectedOwners.length) {
+      context.addIssue({
+        code: 'custom',
+        path: ['expectedThreshold'],
+        message: 'must not exceed the number of expected owners',
+      });
+    }
+  });
 
 const finalOwner = z.discriminatedUnion('type', [eoaOwner, safeOwner]);
 const roleGrant = z.strictObject({role, account: nonZeroAddress});
