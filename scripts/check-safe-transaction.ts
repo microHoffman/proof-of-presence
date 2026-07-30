@@ -6,7 +6,6 @@ interface Args {
   manifest?: string;
   network?: string;
   txServiceUrl?: string;
-  upgrade?: string;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -16,7 +15,6 @@ function parseArgs(argv: string[]): Args {
     if (arg === '--manifest') args.manifest = argv[++i];
     else if (arg === '--network') args.network = argv[++i];
     else if (arg === '--tx-service-url') args.txServiceUrl = argv[++i];
-    else if (arg === '--upgrade') args.upgrade = argv[++i];
     else if (arg === '--help' || arg === '-h') return args;
     else throw new Error(`Unknown argument '${arg}'`);
   }
@@ -26,9 +24,7 @@ function parseArgs(argv: string[]): Args {
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   if (!args.manifest || !args.network) {
-    console.log(
-      'Usage: npm run owner:status -- --manifest <manifest.json> --network <network> [--upgrade contract:version]',
-    );
+    console.log('Usage: yarn owner:status -- --manifest <manifest.json> --network <network>');
     if (!process.argv.includes('--help') && !process.argv.includes('-h'))
       throw new Error('--manifest and --network are required');
     return;
@@ -39,7 +35,6 @@ async function main(): Promise<void> {
     await ownerStatusCommand(
       {
         manifestPath: args.manifest,
-        upgrade: args.upgrade,
         apiKey: process.env.SAFE_API_KEY,
         txServiceUrl: args.txServiceUrl ?? process.env.SAFE_TX_SERVICE_URL,
       },

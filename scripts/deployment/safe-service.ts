@@ -6,7 +6,8 @@ import type {ProposeTransactionProps, SafeApiKitConfig} from '@safe-global/api-k
 import type {SafeConfig} from '@safe-global/protocol-kit';
 import type {MetaTransactionData, SafeTransactionData} from '@safe-global/types-kit';
 import {getAddress} from 'ethers';
-import type {PendingOwnerAction, PreparedSafeTransaction, SafeOwnerConfig} from './village.js';
+import type {PendingOwnerAction, PreparedSafeTransaction} from './village.js';
+import type {SafeOwnerConfig} from './spec.js';
 
 interface SafeServiceTransaction {
   safe: string;
@@ -62,6 +63,21 @@ export interface SafeServiceOptions {
   client?: SafeApiKitInstance;
 }
 
+export interface SafeProposalResult {
+  status: 'submitted' | 'already-submitted';
+  transaction: PreparedSafeTransaction;
+}
+
+export interface SafeServiceStatus {
+  status: 'awaiting-confirmations' | 'ready-to-execute' | 'executed' | 'failed';
+  confirmationsSubmitted: number;
+  confirmationsRequired: number;
+  isExecuted: boolean;
+  isSuccessful?: boolean;
+  executionTransactionHash?: string;
+  executionDate?: string;
+}
+
 /**
  * Uses Protocol Kit as the single source of Safe batching, nonce selection, and hashing.
  * The actions become one atomic call-only Safe transaction; no delegate calls are permitted.
@@ -88,7 +104,7 @@ export async function proposeSafeOwnerActions(
   chainId: number,
   prepared: PreparedSafeTransaction,
   options: SafeProposalOptions,
-): Promise<PreparedSafeTransaction> {
+): Promise<SafeProposalResult> {
   const safeAddress = getAddress(prepared.safeAddress);
   const protocolKit = await Safe.init({provider: options.provider, signer: options.signer, safeAddress});
   const safeTransaction = new EthSafeTransaction(prepared.data);
@@ -105,17 +121,8 @@ export async function proposeSafeOwnerActions(
   try {
     // Looking up the prepared hash first makes repeated proposal commands idempotent.
     const existing = await apiKit.getTransaction(prepared.safeTxHash);
-    const confirmations = await apiKit.getTransactionConfirmations(prepared.safeTxHash);
-    return withServiceStatus(
-      withProposal(prepared, {
-        status: 'already-submitted',
-        submittedAt: new Date().toISOString(),
-        txServiceUrl: options.txServiceUrl,
-        origin: options.origin,
-      }),
-      existing,
-      confirmations,
-    );
+    validateServiceTransaction(prepared, existing);
+    return {status: 'already-submitted', transaction: prepared};
   } catch (error) {
     if (!(error instanceof HttpError) || error.statusCode !== 404) throw error;
   }
@@ -136,23 +143,7 @@ export async function proposeSafeOwnerActions(
     origin: options.origin,
   });
 
-  const proposed = withProposal(prepared, {
-    status: 'submitted',
-    senderAddress: normalizedSender,
-    submittedAt: new Date().toISOString(),
-    txServiceUrl: options.txServiceUrl,
-    origin: options.origin,
-  });
-  try {
-    return withServiceStatus(
-      proposed,
-      await apiKit.getTransaction(prepared.safeTxHash),
-      await apiKit.getTransactionConfirmations(prepared.safeTxHash),
-    );
-  } catch (error) {
-    if (error instanceof HttpError && error.statusCode === 404) return proposed;
-    throw error;
-  }
+  return {status: 'submitted', transaction: prepared};
 }
 
 /**
@@ -163,7 +154,7 @@ export async function refreshSafeOwnerActionsStatus(
   chainId: number,
   prepared: PreparedSafeTransaction,
   options: SafeServiceOptions,
-): Promise<PreparedSafeTransaction> {
+): Promise<SafeServiceStatus> {
   const apiKit =
     options.client ??
     new SafeApiKit({
@@ -171,32 +162,20 @@ export async function refreshSafeOwnerActionsStatus(
       apiKey: options.apiKey,
       txServiceUrl: options.txServiceUrl,
     });
-  return withServiceStatus(
+  return serviceStatus(
     prepared,
     await apiKit.getTransaction(prepared.safeTxHash),
     await apiKit.getTransactionConfirmations(prepared.safeTxHash),
   );
 }
 
-function withProposal(
-  prepared: PreparedSafeTransaction,
-  proposal: NonNullable<PreparedSafeTransaction['proposal']>,
-): PreparedSafeTransaction {
-  return {...prepared, proposal};
-}
-
-/** Validates the service response belongs to the prepared transaction before attaching its advisory status. */
-function withServiceStatus(
+/** Derives advisory service status after validating the response identity. */
+function serviceStatus(
   prepared: PreparedSafeTransaction,
   transaction: SafeServiceTransaction,
   confirmations: SafeServiceConfirmations,
-): PreparedSafeTransaction {
-  if (transaction.safeTxHash.toLowerCase() !== prepared.safeTxHash.toLowerCase()) {
-    throw new Error(`Safe Transaction Service returned an unexpected transaction hash ${transaction.safeTxHash}`);
-  }
-  if (getAddress(transaction.safe) !== getAddress(prepared.safeAddress)) {
-    throw new Error(`Safe Transaction Service returned an unexpected Safe address ${transaction.safe}`);
-  }
+): SafeServiceStatus {
+  validateServiceTransaction(prepared, transaction);
 
   const confirmationsSubmitted = new Set(confirmations.results.map(({owner}) => getAddress(owner))).size;
   const isSuccessful = transaction.isSuccessful ?? undefined;
@@ -209,16 +188,22 @@ function withServiceStatus(
       : 'awaiting-confirmations';
 
   return {
-    ...prepared,
-    serviceStatus: {
-      status,
-      checkedAt: new Date().toISOString(),
-      confirmationsSubmitted,
-      confirmationsRequired: transaction.confirmationsRequired,
-      isExecuted: transaction.isExecuted,
-      isSuccessful,
-      executionTransactionHash: transaction.transactionHash ?? undefined,
-      executionDate: transaction.executionDate ?? undefined,
-    },
+    status,
+    confirmationsSubmitted,
+    confirmationsRequired: transaction.confirmationsRequired,
+    isExecuted: transaction.isExecuted,
+    isSuccessful,
+    executionTransactionHash: transaction.transactionHash ?? undefined,
+    executionDate: transaction.executionDate ?? undefined,
   };
+}
+
+/** Validates response identity before accepting either idempotency or advisory status. */
+function validateServiceTransaction(prepared: PreparedSafeTransaction, transaction: SafeServiceTransaction): void {
+  if (transaction.safeTxHash.toLowerCase() !== prepared.safeTxHash.toLowerCase()) {
+    throw new Error(`Safe Transaction Service returned an unexpected transaction hash ${transaction.safeTxHash}`);
+  }
+  if (getAddress(transaction.safe) !== getAddress(prepared.safeAddress)) {
+    throw new Error(`Safe Transaction Service returned an unexpected Safe address ${transaction.safe}`);
+  }
 }

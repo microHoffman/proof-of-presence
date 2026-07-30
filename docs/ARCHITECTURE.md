@@ -83,21 +83,23 @@ an initializer revision and is unrelated to product or deployment schemas.
 
 ## Deployment architecture
 
-Contract Ignition modules are composed into stable profile modules. Supported profiles are:
+Generic deployments select canonical contract names. The resolver adds required dependencies and sorts the result
+into one canonical order. For example, selecting `TokenizedStays` adds `VillageAccess` and `CommunityToken`.
+`TDFTransferPolicy` has no dependency and may be deployed independently.
 
-- `minimal-village`: VillageAccess only unless extra modules are selected.
-- `token-village`: VillageAccess, CommunityToken, and VillageCitizenNFT.
-- `tokenized-stays-village`: VillageAccess, CommunityToken, VillageCitizenNFT, and TokenizedStays.
-- `tdf`: all village modules plus TDFTransferPolicy, DynamicPriceSale, and a new TDFV1BondingCurve.
+Ignition accepts one root Module, so `buildVillageGraph` composes the resolved set into one deterministic graph.
+Contract-specific Modules remain reusable. Address-dependent links, such as an internally deployed transfer policy
+passed to CommunityToken, are expressed in the root. The graph ID is derived from schema version 2, the complete
+resolved contract set, and a graph-changing preset when present. The deployment ID additionally includes chain ID
+and village slug, so two villages using the same code receive separate journals and fresh contract instances.
 
-Other valid module combinations use `CustomVillageModule_v2_` followed by a fixed seven-bit mask in this stable order:
-CommunityToken, VillagePresenceToken, VillageSweatToken, TokenizedStays, TDFTransferPolicy, VillageCitizenNFT, and
-DynamicPriceSale. The same contract modules are reused by standalone contract deployment and profiles. Named-profile
-module IDs remain unchanged.
+TDF is a preset adapter over the same resolver and deployment engine. It selects the complete contract set, adds the
+internal `TDFV1BondingCurve`, and supplies locked launch constants. There is no profile hierarchy, custom bitmask
+Module, standalone-contract engine, or second TDF deployment path.
 
 Hardhat Ignition is the sole transaction journal and resumption engine. The deployment wrapper adds config
-validation, OpenZeppelin validation, ownership handoff, on-chain reconciliation, verification, atomic manifest
-publication, and immutable consumer-descriptor generation. It never replaces Ignition's journal.
+validation, OpenZeppelin validation, ownership handoff, on-chain reconciliation, and atomic operational-manifest
+publication. Verification uses Ignition's built-in command explicitly. The wrapper never replaces Ignition's journal.
 
 ## Authority model
 

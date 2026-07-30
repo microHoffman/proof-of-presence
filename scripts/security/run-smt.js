@@ -3,7 +3,7 @@ import {existsSync, readFileSync, realpathSync, writeFileSync} from 'node:fs';
 import path from 'node:path';
 import console from 'node:console';
 import process from 'node:process';
-import {ensureReportDirectory, reportSlug, run} from './shared.js';
+import {COMPILER_SETTINGS, SOLC_FULL_VERSION, ensureReportDirectory, reportSlug, run} from './shared.js';
 
 const source = 'security/smt/TokenizedStaysSMT.sol';
 const targets = [
@@ -71,8 +71,8 @@ if (
 
 const solcVersion = captured(solcExecutable, ['--version']).output;
 const z3Version = captured(z3Executable, ['--version']).output;
-if (!/Version: 0\.8\.35\+commit\.47b9dedd/.test(solcVersion)) {
-  throw new Error(`Expected solc 0.8.35+commit.47b9dedd, received:\n${solcVersion}`);
+if (!solcVersion.includes(`Version: ${SOLC_FULL_VERSION}`)) {
+  throw new Error(`Expected solc ${SOLC_FULL_VERSION}, received:\n${solcVersion}`);
 }
 if (!/Z3 version 4\.15\.8/.test(z3Version)) {
   throw new Error(`Expected Z3 4.15.8, received:\n${z3Version}`);
@@ -89,7 +89,7 @@ function analyze(targetSource, contract, engine) {
       '--allow-paths',
       '.',
       '--evm-version',
-      'cancun',
+      COMPILER_SETTINGS.evmVersion,
       '--optimize',
       '--model-checker-engine',
       engine,

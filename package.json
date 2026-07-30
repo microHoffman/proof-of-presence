@@ -87,15 +87,13 @@
     "coverage": "CONTRACT_FUZZ_RUNS=32 CONTRACT_INVARIANT_RUNS=8 CONTRACT_INVARIANT_DEPTH=20 hardhat test solidity --coverage",
     "dev:node": "hardhat node --hostname 0.0.0.0",
     "deploy": "node ./scripts/print-deploy-help.js",
-    "deploy:contract": "tsx scripts/deploy-contract.ts",
     "deploy:village": "tsx scripts/deploy-village.ts",
-    "deploy:tdf": "tsx scripts/deploy-village.ts --profile tdf",
+    "deploy:tdf": "tsx scripts/deploy-tdf.ts",
     "owner:submit": "tsx scripts/propose-safe-transaction.ts",
     "owner:status": "tsx scripts/check-safe-transaction.ts",
-    "safe:propose": "tsx scripts/propose-safe-transaction.ts",
-    "safe:status": "tsx scripts/check-safe-transaction.ts",
     "upgrade:prepare": "tsx scripts/prepare-upgrade.ts",
-    "verify:village": "tsx scripts/verify-village.ts",
+    "upgrade:submit": "tsx scripts/submit-upgrade.ts",
+    "upgrade:status": "tsx scripts/check-upgrade.ts",
     "hardhat": "hardhat"
   }
 }

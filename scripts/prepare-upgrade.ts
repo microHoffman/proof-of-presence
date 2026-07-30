@@ -34,7 +34,7 @@ function parseArgs(argv: string[]): Args {
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   if (!args.manifest || !args.contract || !args.implementation || !args.version) {
-    console.log(`Usage: npm run upgrade:prepare -- --manifest <file> --contract <name>
+    console.log(`Usage: yarn upgrade:prepare -- --manifest <file> --contract <name>
   --implementation <artifact> --version <version> [--network <network>]
   [--call <function>] [--call-args '<json-array>']`);
     if (!process.argv.includes('--help') && !process.argv.includes('-h')) {

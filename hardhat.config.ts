@@ -7,6 +7,7 @@ import HardhatEthersChaiMatchers from '@nomicfoundation/hardhat-ethers-chai-matc
 import HardhatVerify from '@nomicfoundation/hardhat-verify';
 import HardhatIgnitionEthers from '@nomicfoundation/hardhat-ignition-ethers';
 import HardhatUpgrades from '@openzeppelin/hardhat-upgrades';
+import projectConfig from './config/project.json';
 
 const DEVCHAIN_MNEMONIC = 'myth like bonus scare over problem client lizard pioneer submit female collect';
 const CONTRACT_FUZZ_RUNS = Number(process.env.CONTRACT_FUZZ_RUNS ?? 256);
@@ -33,12 +34,12 @@ const config: HardhatUserConfig = {
       default: {
         compilers: [
           {
-            version: '0.8.35',
+            version: projectConfig.compiler.version,
             settings: {
-              evmVersion: 'cancun',
+              evmVersion: projectConfig.compiler.evmVersion,
               optimizer: {
                 enabled: true,
-                runs: 2000,
+                runs: projectConfig.compiler.optimizerRuns,
               },
             },
           },

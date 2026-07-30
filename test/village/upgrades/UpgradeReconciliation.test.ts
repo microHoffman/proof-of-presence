@@ -19,12 +19,11 @@ describe('Upgrade manifest reconciliation', function () {
 
     expect(result).to.deep.equal({liveImplementation: next.address, executed: true});
     expect(upgrade.status).to.equal('executed');
-    expect(contracts.CommunityToken.revisions).to.have.length(2);
-    expect(contracts.CommunityToken.revisions.at(-1)!.implementationAddress).to.equal(next.address);
-    expect(contracts.CommunityToken.revisions.at(-1)!.implementationRuntimeCodeHash).to.equal(
-      keccak256(implementationCode),
-    );
-    expect(contracts.CommunityToken.revisions.at(-1)!.abi).to.deep.equal(upgrade.candidateAbi);
+    expect(contracts.CommunityToken.artifact).to.equal('CommunityTokenUpgradeMock');
+    expect(contracts.CommunityToken.implementation).to.deep.equal({
+      address: next.address,
+      runtimeCodeHash: keccak256(implementationCode),
+    });
     expect(upgrade.executedAt).to.deep.equal({
       transactionHash: `0x${'22'.repeat(32)}`,
       blockNumber: '12',
@@ -49,7 +48,7 @@ describe('Upgrade manifest reconciliation', function () {
 
     expect(result).to.deep.equal({liveImplementation: previous.address, executed: false});
     expect(upgrade.status).to.equal('prepared');
-    expect(contracts.CommunityToken.revisions.at(-1)!.implementationAddress).to.equal(previous.address);
+    expect(contracts.CommunityToken.implementation?.address).to.equal(previous.address);
   });
 
   it('rejects prepared-code hash mismatches without mutating the manifest', async function () {
@@ -70,8 +69,8 @@ describe('Upgrade manifest reconciliation', function () {
 
     expect(failure?.message).to.include('does not match prepared hash');
     expect(upgrade.status).to.equal('prepared');
-    expect(contracts.CommunityToken.revisions.at(-1)!.implementationAddress).to.equal(previous.address);
-    expect(contracts.CommunityToken.revisions.at(-1)!.implementationRuntimeCodeHash).to.equal(ZeroHash);
+    expect(contracts.CommunityToken.implementation?.address).to.equal(previous.address);
+    expect(contracts.CommunityToken.implementation?.runtimeCodeHash).to.equal(ZeroHash);
   });
 
   it('rejects an implementation that is neither the previous nor prepared candidate', async function () {
@@ -92,28 +91,17 @@ describe('Upgrade manifest reconciliation', function () {
 
     expect(failure?.message).to.include('is neither the prepared implementation');
     expect(upgrade.status).to.equal('prepared');
-    expect(contracts.CommunityToken.revisions.at(-1)!.implementationAddress).to.equal(previous.address);
+    expect(contracts.CommunityToken.implementation?.address).to.equal(previous.address);
   });
 });
 
 function contractRecords(proxy: string, implementation: string): Record<string, ManifestContract> {
   return {
     CommunityToken: {
-      name: 'CommunityToken',
-      deploymentName: 'test_CommunityToken',
+      artifact: 'CommunityToken',
+      kind: 'uups',
       address: proxy,
-      revisions: [
-        {
-          implementationAddress: implementation,
-          implementationRuntimeCodeHash: ZeroHash,
-          abi: [],
-          abiHash: ZeroHash,
-          effectiveFrom: {
-            kind: 'deployment',
-            block: {blockNumber: '1', blockHash: ZeroHash},
-          },
-        },
-      ],
+      implementation: {address: implementation, runtimeCodeHash: ZeroHash},
     },
   };
 }
@@ -128,7 +116,7 @@ function manifestUpgrade(
     version: 'upgrade-test',
     nextArtifact: 'CommunityTokenUpgradeMock',
     deploymentId: 'upgrade-test',
-    moduleId: 'UpgradeImplementationModule',
+    graphId: 'UpgradeImplementationModule',
     previousImplementation,
     newImplementation,
     status: 'prepared',
@@ -136,8 +124,6 @@ function manifestUpgrade(
     callData: '0x',
     specHash: ZeroHash,
     implementationCodeHash,
-    candidateAbi: [{type: 'function', name: 'newFunction', inputs: [], outputs: []}],
-    candidateAbiHash: `0x${'11'.repeat(32)}`,
     preparedAtBlock: {blockNumber: '10', blockHash: ZeroHash},
     ownerAction: {
       to: newImplementation,

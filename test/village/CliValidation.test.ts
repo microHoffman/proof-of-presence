@@ -33,46 +33,64 @@ async function rejectionMessage(promise: Promise<{code: number | null; output: s
 }
 
 describe('Deployment CLI validation', function () {
-  it('rejects inherited object keys as unsupported contract modules', async function () {
-    const message = await rejectionMessage(
-      runWorker('scripts/deploy-contract.ts', ['--contract', 'toString', '--config', 'unused.json']),
-    );
-    expect(message).to.include("Unsupported contract Module 'toString'");
-  });
+  for (const [name, args, expected] of [
+    ['unknown argument', ['--typo'], "Unknown argument '--typo'"],
+    ['missing config value', ['--config'], '--config requires a value'],
+    ['trailing argument', ['--config', 'unused.json', '--typo'], "Unknown argument '--typo'"],
+  ] as const) {
+    it(`rejects ${name}`, async function () {
+      const message = await rejectionMessage(runWorker('scripts/deploy-village.ts', args));
+      expect(message).to.include(expected);
+    });
+  }
 
-  it('rejects non-minimal profiles for standalone contract deployment', async function () {
-    const root = await mkdtemp(path.join(tmpdir(), 'standalone-profile-validation-'));
+  it('rejects legacy profile/module configuration before connecting to a network', async function () {
+    const root = await mkdtemp(path.join(tmpdir(), 'legacy-deployment-config-'));
     const configPath = path.join(root, 'config.json');
     await writeFile(
       configPath,
       `${JSON.stringify({
         schemaVersion: 1,
-        villageSlug: 'standalone-profile-validation',
+        villageSlug: 'legacy-config',
         chainId: 31337,
         deploymentProfile: 'token-village',
-        finalOwner: {type: 'eoa', address: '0x0000000000000000000000000000000000000001'},
         modules: [],
+        finalOwner: {type: 'eoa', address: '0x0000000000000000000000000000000000000001'},
         apiOperator: '0x0000000000000000000000000000000000000002',
-        communityToken: {maxSupply: '1000'},
-        citizenNft: {baseURI: 'ipfs://citizens/'},
       })}\n`,
     );
-
-    const message = await rejectionMessage(
-      runWorker('scripts/deploy-contract.ts', ['--contract', 'CommunityToken', '--config', configPath]),
-    );
-    expect(message).to.include("Single-contract deployment requires deploymentProfile 'minimal-village'");
+    const message = await rejectionMessage(runWorker('scripts/deploy-village.ts', ['--config', configPath]));
+    expect(message).to.match(/schemaVersion|Unrecognized key/);
   });
 
-  for (const [name, args, expected] of [
-    ['unknown first argument', ['typo'], "Unknown argument 'typo'"],
-    ['missing manifest value', ['--manifest'], '--manifest requires a path'],
-    ['trailing argument', ['--manifest', 'manifest.json', '--typo'], "Unknown argument '--typo'"],
-    ['removed submit option', ['--submit'], "Unknown argument '--submit'"],
-  ] as const) {
-    it(`rejects ${name}`, async function () {
-      const message = await rejectionMessage(runWorker('scripts/verify-village.ts', args));
-      expect(message).to.include(expected);
-    });
-  }
+  it('rejects attempts to override the TDF contract set', async function () {
+    const root = await mkdtemp(path.join(tmpdir(), 'tdf-deployment-config-'));
+    const configPath = path.join(root, 'config.json');
+    await writeFile(
+      configPath,
+      `${JSON.stringify({
+        schemaVersion: 2,
+        villageSlug: 'tdf-config',
+        chainId: 31337,
+        contracts: ['VillageAccess'],
+        finalOwner: {type: 'eoa', address: '0x0000000000000000000000000000000000000001'},
+        apiOperator: '0x0000000000000000000000000000000000000002',
+        communityToken: {
+          initialSupply: '5381000000000000000000',
+          initialRecipient: '0x0000000000000000000000000000000000000003',
+        },
+        citizenNft: {baseURI: 'ipfs://citizens/'},
+        presenceToken: {decayRatePerDay: '1'},
+        sweatToken: {decayRatePerDay: '1'},
+        tdfTransferPolicy: {treasury: '0x0000000000000000000000000000000000000004'},
+        dynamicPriceSale: {
+          quoteToken: '0x0000000000000000000000000000000000000005',
+          villageTreasury: '0x0000000000000000000000000000000000000004',
+          closerFeeRecipient: '0x0000000000000000000000000000000000000006',
+        },
+      })}\n`,
+    );
+    const message = await rejectionMessage(runWorker('scripts/deploy-tdf.ts', ['--config', configPath]));
+    expect(message).to.include('Unrecognized key');
+  });
 });

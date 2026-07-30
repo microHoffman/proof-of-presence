@@ -1,5 +1,5 @@
 import {getAddress, id, keccak256, zeroPadValue} from 'ethers';
-import {currentContractRevision, type LogReference, type ManifestContract, type ManifestUpgrade} from './village.js';
+import type {LogReference, ManifestContract, ManifestUpgrade} from './village.js';
 
 export const ERC1967_IMPLEMENTATION_SLOT = '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc';
 
@@ -34,8 +34,7 @@ export async function reconcileExecutedUpgrade(
   provider: UpgradeProvider,
 ): Promise<UpgradeReconciliationResult> {
   const record = contracts[upgrade.contractName];
-  const currentRevision = record ? currentContractRevision(record) : undefined;
-  if (!record || !currentRevision?.implementationAddress) {
+  if (!record?.implementation) {
     throw new Error(`Manifest has no UUPS deployment for ${upgrade.contractName}`);
   }
 
@@ -74,17 +73,12 @@ export async function reconcileExecutedUpgrade(
 
   if (upgrade.status !== 'executed') {
     const executedAt = await findUpgradeEvent(record.address, expectedImplementation, upgrade, provider);
-    record.revisions.push({
-      implementationAddress: liveImplementation,
-      implementationRuntimeCodeHash: implementationCodeHash,
-      abi: upgrade.candidateAbi,
-      abiHash: upgrade.candidateAbiHash,
-      effectiveFrom: {kind: 'upgrade', event: executedAt},
-    });
+    record.artifact = upgrade.nextArtifact;
+    record.implementation = {address: liveImplementation, runtimeCodeHash: implementationCodeHash};
     upgrade.executedAt = executedAt;
     upgrade.status = 'executed';
-  } else if (getAddress(currentContractRevision(record).implementationAddress!) !== expectedImplementation) {
-    throw new Error(`${upgrade.contractName} executed upgrade has no matching active ABI revision`);
+  } else if (getAddress(record.implementation.address) !== expectedImplementation) {
+    throw new Error(`${upgrade.contractName} executed upgrade is not the manifest's active implementation`);
   }
   return {liveImplementation, executed: true};
 }

@@ -2,6 +2,7 @@ import {readFile} from 'node:fs/promises';
 import path from 'node:path';
 import {ZeroAddress, getAddress} from 'ethers';
 import type {DeploymentParameters, IgnitionModule} from '@nomicfoundation/ignition-core';
+import {buildVillageGraph} from '../../ignition/modules/VillageGraph.js';
 import {COMMUNITY_TOKEN_MODULE_ID} from '../../ignition/modules/contracts/CommunityToken.js';
 import {DYNAMIC_PRICE_SALE_MODULE_ID} from '../../ignition/modules/contracts/DynamicPriceSale.js';
 import {TDF_TRANSFER_POLICY_MODULE_ID} from '../../ignition/modules/contracts/TDFTransferPolicy.js';
@@ -10,11 +11,6 @@ import {VILLAGE_ACCESS_MODULE_ID} from '../../ignition/modules/contracts/Village
 import {VILLAGE_PRESENCE_TOKEN_MODULE_ID} from '../../ignition/modules/contracts/VillagePresenceToken.js';
 import {VILLAGE_SWEAT_TOKEN_MODULE_ID} from '../../ignition/modules/contracts/VillageSweatToken.js';
 import {VILLAGE_CITIZEN_NFT_MODULE_ID} from '../../ignition/modules/contracts/VillageCitizenNFT.js';
-import {TDF_COMMUNITY_TOKEN_MODULE_ID} from '../../ignition/modules/profiles/TdfCommunityToken.js';
-import {TDF_DYNAMIC_PRICE_SALE_MODULE_ID} from '../../ignition/modules/profiles/TdfDynamicPriceSale.js';
-import {TDF_EXTERNAL_DYNAMIC_PRICE_SALE_MODULE_ID} from '../../ignition/modules/profiles/TdfExternalDynamicPriceSale.js';
-import {TDF_TOKENIZED_STAYS_MODULE_ID} from '../../ignition/modules/profiles/TdfTokenizedStays.js';
-import {selectVillageProfileModule} from '../../ignition/modules/profiles/select.js';
 import type {
   ManifestContract,
   BlockReference,
@@ -23,17 +19,16 @@ import type {
   VillageDeploymentConfig,
   VillageDeploymentContext,
 } from './village.js';
-import {createInitialContractRevision, resolvedCloserFeeBps} from './village.js';
+import {resolvedCloserFeeBps} from './village.js';
+import {graphHashForContracts, graphIdForSpec} from './spec.js';
 import type {UupsContractName} from './uups-contracts.js';
 
 export interface IgnitionVillageDeployment {
   module: IgnitionModule;
-  moduleIds: string[];
   deploymentId: string;
   parameters: DeploymentParameters;
   contracts: Record<string, ManifestContract>;
   instances: Record<string, any>;
-  initializedTransferPolicy: string;
   deploymentStart: BlockReference;
 }
 
@@ -52,7 +47,7 @@ export async function validateSelectedImplementations(
   if (modules.citizenNft) selected.push('VillageCitizenNFT');
   if (modules.dynamicPriceSale) selected.push('DynamicPriceSale');
 
-  if (!context.upgrades?.validateImplementation) {
+  if (selected.length > 0 && !context.upgrades?.validateImplementation) {
     throw new Error('OpenZeppelin upgrades validation is required before every Ignition UUPS deployment');
   }
   for (const contractName of selected) {
@@ -63,7 +58,7 @@ export async function validateSelectedImplementations(
 
 export function villageIgnitionDeploymentId(config: VillageDeploymentConfig): string {
   // The deployment ID selects Ignition's persistent journal; changing it turns a rerun into a distinct deployment.
-  return `village-${config.chainId}-${config.villageSlug}-${config.deploymentProfile}`;
+  return `village-${config.chainId}-${config.villageSlug}-${graphHashForContracts(config.contracts, config.preset).slice(2)}`;
 }
 
 export function buildVillageIgnitionParameters(
@@ -71,18 +66,21 @@ export function buildVillageIgnitionParameters(
   modules: NormalizedModules,
   initialOwner: string,
   initializerGrants: ResolvedRoleGrant[],
-): {parameters: DeploymentParameters; initializedTransferPolicy: string} {
+): DeploymentParameters {
   const parameters: DeploymentParameters = {};
+  const setParameters = (moduleId: string, values: Record<string, unknown>): void => {
+    parameters[moduleId] = {...(parameters[moduleId] ?? {}), ...values} as any;
+  };
   if (!isPolicyOnlyDeployment(modules)) {
-    parameters[VILLAGE_ACCESS_MODULE_ID] = {
+    setParameters(VILLAGE_ACCESS_MODULE_ID, {
       initialDefaultAdmin: initialOwner,
       initialRoleGrants: initializerGrants.map(({role, account}) => ({role, account})),
-    };
+    });
   }
 
   const usesInternalTransferPolicy = modules.communityToken && modules.tdfTransferPolicy;
   // External policies are ordinary parameters. Internally deployed policies are passed as
-  // Ignition Futures by the TDF composition Module and resolved after deployment below.
+  // Ignition Futures by the root graph and resolved after deployment below.
   const initializedTransferPolicy =
     usesInternalTransferPolicy || !config.communityToken?.transferPolicy
       ? ZeroAddress
@@ -90,8 +88,8 @@ export function buildVillageIgnitionParameters(
 
   if (modules.communityToken) {
     const initialSupply = BigInt(config.communityToken?.initialSupply ?? 0).toString();
-    const moduleId = usesInternalTransferPolicy ? TDF_COMMUNITY_TOKEN_MODULE_ID : COMMUNITY_TOKEN_MODULE_ID;
-    parameters[moduleId] = {
+    const moduleId = usesInternalTransferPolicy ? graphIdForSpec(config) : COMMUNITY_TOKEN_MODULE_ID;
+    setParameters(moduleId, {
       name: config.communityToken?.name ?? titleFromSlug(config.villageSlug, 'Token'),
       symbol: config.communityToken?.symbol ?? symbolFromSlug(config.villageSlug),
       initialSupply,
@@ -99,54 +97,49 @@ export function buildVillageIgnitionParameters(
       initialRecipient: BigInt(initialSupply) > 0n ? getAddress(config.communityToken!.initialRecipient!) : ZeroAddress,
       ...(usesInternalTransferPolicy ? {} : {transferPolicy: initializedTransferPolicy}),
       owner: initialOwner,
-    };
+    });
   }
   if (modules.presenceToken) {
-    parameters[VILLAGE_PRESENCE_TOKEN_MODULE_ID] = {
+    setParameters(VILLAGE_PRESENCE_TOKEN_MODULE_ID, {
       name: config.presenceToken?.name ?? titleFromSlug(config.villageSlug, 'Presence'),
       symbol: config.presenceToken?.symbol ?? `${symbolFromSlug(config.villageSlug)}P`,
       decayRatePerDay: String(config.presenceToken?.decayRatePerDay),
       owner: initialOwner,
-    };
+    });
   }
   if (modules.sweatToken) {
-    parameters[VILLAGE_SWEAT_TOKEN_MODULE_ID] = {
+    setParameters(VILLAGE_SWEAT_TOKEN_MODULE_ID, {
       name: config.sweatToken?.name ?? titleFromSlug(config.villageSlug, 'Contribution'),
       symbol: config.sweatToken?.symbol ?? `${symbolFromSlug(config.villageSlug)}C`,
       decayRatePerDay: String(config.sweatToken?.decayRatePerDay),
       owner: initialOwner,
-    };
+    });
   }
   if (modules.citizenNft) {
-    parameters[VILLAGE_CITIZEN_NFT_MODULE_ID] = {
+    setParameters(VILLAGE_CITIZEN_NFT_MODULE_ID, {
       name: config.citizenNft?.name ?? titleFromSlug(config.villageSlug, 'Citizen'),
       symbol: config.citizenNft?.symbol ?? `${config.villageSlug} CIT`,
       baseURI: config.citizenNft!.baseURI,
       owner: initialOwner,
-    };
+    });
   }
   if (modules.tokenizedStays) {
-    parameters[usesInternalTransferPolicy ? TDF_TOKENIZED_STAYS_MODULE_ID : TOKENIZED_STAYS_MODULE_ID] = {
+    setParameters(usesInternalTransferPolicy ? graphIdForSpec(config) : TOKENIZED_STAYS_MODULE_ID, {
       owner: initialOwner,
-    };
+    });
   }
   if (modules.tdfTransferPolicy) {
-    parameters[TDF_TRANSFER_POLICY_MODULE_ID] = {
+    setParameters(TDF_TRANSFER_POLICY_MODULE_ID, {
       treasury: getAddress(config.tdfTransferPolicy!.treasury),
       owner: initialOwner,
-    };
+    });
   }
   if (modules.dynamicPriceSale) {
     const sale = config.dynamicPriceSale!;
-    const moduleId =
-      config.deploymentProfile === 'tdf'
-        ? TDF_DYNAMIC_PRICE_SALE_MODULE_ID
-        : modules.tdfTransferPolicy
-          ? TDF_EXTERNAL_DYNAMIC_PRICE_SALE_MODULE_ID
-          : DYNAMIC_PRICE_SALE_MODULE_ID;
-    parameters[moduleId] = {
+    const moduleId = modules.tdfTransferPolicy ? graphIdForSpec(config) : DYNAMIC_PRICE_SALE_MODULE_ID;
+    setParameters(moduleId, {
       quoteToken: getAddress(sale.quoteToken),
-      ...(config.deploymentProfile === 'tdf' ? {} : {bondingCurve: getAddress(sale.bondingCurve!)}),
+      ...(config.preset === 'tdf' ? {} : {bondingCurve: getAddress(sale.bondingCurve!)}),
       villageTreasury: getAddress(sale.villageTreasury),
       closerFeeRecipient: getAddress(sale.closerFeeRecipient),
       closerFeeBps: resolvedCloserFeeBps(config),
@@ -156,9 +149,9 @@ export function buildVillageIgnitionParameters(
       purchaseGranularity: BigInt(sale.purchaseGranularity).toString(),
       maximumRecipientBalance: BigInt(sale.maximumRecipientBalance).toString(),
       owner: initialOwner,
-    };
+    });
   }
-  return {parameters, initializedTransferPolicy};
+  return parameters;
 }
 
 export async function deployVillageIgnitionGraph(
@@ -171,15 +164,9 @@ export async function deployVillageIgnitionGraph(
 ): Promise<IgnitionVillageDeployment> {
   if (!context.ignition?.deploy) throw new Error('Hardhat Ignition is required for every contract deployment');
 
-  const module = selectVillageProfileModule(modules, config.deploymentProfile === 'tdf');
-  // A caller override is used by standalone-contract deployment; normal village reruns must retain the derived ID.
-  const deploymentId = context.deploymentIdOverride ?? villageIgnitionDeploymentId(config);
-  const {parameters, initializedTransferPolicy: configuredTransferPolicy} = buildVillageIgnitionParameters(
-    config,
-    modules,
-    initialOwner,
-    initializerGrants,
-  );
+  const module = buildVillageGraph(config);
+  const deploymentId = villageIgnitionDeploymentId(config);
+  const parameters = buildVillageIgnitionParameters(config, modules, initialOwner, initializerGrants);
   const beforeDeployment = await context.ethers.provider.getBlock('latest');
   const deployed = await context.ignition.deploy(module, {
     parameters,
@@ -191,40 +178,26 @@ export async function deployVillageIgnitionGraph(
   const contracts: Record<string, ManifestContract> = {};
   const instances: Record<string, any> = {};
 
-  const addPlain = async (
-    contractName: string,
-    resultKey: string,
-    constructorArgs: unknown[],
-    authority?: 'ownerless',
-  ): Promise<void> => {
+  const addPlain = async (contractName: string, resultKey: string, authority?: 'ownerless'): Promise<void> => {
     const instance = deployed[resultKey];
-    const abi = JSON.parse(instance.interface.formatJson()) as unknown[];
     contracts[contractName] = {
-      name: contractName,
-      deploymentName: `${config.villageSlug}_${contractName}`,
+      artifact: contractName,
+      kind: 'plain',
       address: getAddress(await instance.getAddress()),
-      constructorArgs,
-      revisions: [createInitialContractRevision(abi, undefined, deploymentStart)],
       authority,
     };
     instances[contractName] = instance;
   };
 
-  const addUups = async (
-    contractName: UupsContractName,
-    resultPrefix: string,
-    initializerArgs: unknown[],
-  ): Promise<void> => {
+  const addUups = async (contractName: UupsContractName, resultPrefix: string): Promise<void> => {
     const instance = deployed[resultPrefix];
     const implementation = deployed[`${resultPrefix}Implementation`];
     const proxy = deployed[`${resultPrefix}Proxy`];
-    const abi = JSON.parse(instance.interface.formatJson()) as unknown[];
     contracts[contractName] = {
-      name: contractName,
-      deploymentName: `${config.villageSlug}_${contractName}`,
+      artifact: contractName,
+      kind: 'uups',
       address: getAddress(await proxy.getAddress()),
-      initializerArgs,
-      revisions: [createInitialContractRevision(abi, getAddress(await implementation.getAddress()), deploymentStart)],
+      implementation: {address: getAddress(await implementation.getAddress())},
     };
     // All later callers use the proxy-bound interface. The implementation address is provenance and upgrade metadata.
     instances[contractName] = instance;
@@ -232,96 +205,39 @@ export async function deployVillageIgnitionGraph(
 
   const policyOnly = isPolicyOnlyDeployment(modules);
   if (!policyOnly) {
-    await addUups('VillageAccess', 'villageAccess', [
-      initialOwner,
-      initializerGrants.map(({role, account}) => ({role, account})),
-    ]);
+    await addUups('VillageAccess', 'villageAccess');
   }
-  const accessAddress = contracts.VillageAccess?.address ?? ZeroAddress;
   if (modules.tdfTransferPolicy) {
-    await addPlain('TDFTransferPolicy', 'tdfTransferPolicy', [
-      getAddress(config.tdfTransferPolicy!.treasury),
-      initialOwner,
-    ]);
+    await addPlain('TDFTransferPolicy', 'tdfTransferPolicy');
   }
-  const initializedTransferPolicy =
-    modules.communityToken && contracts.TDFTransferPolicy
-      ? contracts.TDFTransferPolicy.address
-      : configuredTransferPolicy;
   if (modules.communityToken) {
-    const initialSupply = BigInt(config.communityToken?.initialSupply ?? 0).toString();
-    await addUups('CommunityToken', 'communityToken', [
-      config.communityToken?.name ?? titleFromSlug(config.villageSlug, 'Token'),
-      config.communityToken?.symbol ?? symbolFromSlug(config.villageSlug),
-      initialSupply,
-      BigInt(config.communityToken!.maxSupply!).toString(),
-      BigInt(initialSupply) > 0n ? getAddress(config.communityToken!.initialRecipient!) : ZeroAddress,
-      accessAddress,
-      initializedTransferPolicy,
-      initialOwner,
-    ]);
+    await addUups('CommunityToken', 'communityToken');
   }
   if (modules.presenceToken) {
-    await addUups('VillagePresenceToken', 'villagePresenceToken', [
-      config.presenceToken?.name ?? titleFromSlug(config.villageSlug, 'Presence'),
-      config.presenceToken?.symbol ?? `${symbolFromSlug(config.villageSlug)}P`,
-      accessAddress,
-      String(config.presenceToken?.decayRatePerDay),
-      initialOwner,
-    ]);
+    await addUups('VillagePresenceToken', 'villagePresenceToken');
   }
   if (modules.sweatToken) {
-    await addUups('VillageSweatToken', 'villageSweatToken', [
-      config.sweatToken?.name ?? titleFromSlug(config.villageSlug, 'Contribution'),
-      config.sweatToken?.symbol ?? `${symbolFromSlug(config.villageSlug)}C`,
-      accessAddress,
-      String(config.sweatToken?.decayRatePerDay),
-      initialOwner,
-    ]);
+    await addUups('VillageSweatToken', 'villageSweatToken');
   }
   if (modules.tokenizedStays) {
-    await addUups('TokenizedStays', 'tokenizedStays', [contracts.CommunityToken.address, accessAddress, initialOwner]);
+    await addUups('TokenizedStays', 'tokenizedStays');
   }
   if (modules.citizenNft) {
-    await addUups('VillageCitizenNFT', 'citizenNft', [
-      config.citizenNft?.name ?? titleFromSlug(config.villageSlug, 'Citizen'),
-      config.citizenNft?.symbol ?? `${config.villageSlug} CIT`,
-      config.citizenNft!.baseURI,
-      accessAddress,
-      initialOwner,
-    ]);
+    await addUups('VillageCitizenNFT', 'citizenNft');
   }
   if (modules.dynamicPriceSale) {
-    const sale = config.dynamicPriceSale!;
-    if (config.deploymentProfile === 'tdf') {
-      await addPlain('TDFV1BondingCurve', 'tdfBondingCurve', [], 'ownerless');
+    if (config.preset === 'tdf') {
+      await addPlain('TDFV1BondingCurve', 'tdfBondingCurve', 'ownerless');
     }
-    const bondingCurve =
-      config.deploymentProfile === 'tdf' ? contracts.TDFV1BondingCurve.address : getAddress(sale.bondingCurve!);
-    const configuration = {
-      communityToken: contracts.CommunityToken.address,
-      quoteToken: getAddress(sale.quoteToken),
-      bondingCurve,
-      villageTreasury: getAddress(sale.villageTreasury),
-      closerFeeRecipient: getAddress(sale.closerFeeRecipient),
-      saleCap: BigInt(sale.saleCap).toString(),
-      minimumPurchase: BigInt(sale.minimumPurchase).toString(),
-      maximumPurchase: BigInt(sale.maximumPurchase).toString(),
-      purchaseGranularity: BigInt(sale.purchaseGranularity).toString(),
-      maximumRecipientBalance: BigInt(sale.maximumRecipientBalance).toString(),
-      closerFeeBps: resolvedCloserFeeBps(config),
-    };
-    await addUups('DynamicPriceSale', 'dynamicPriceSale', [configuration, initialOwner]);
+    await addUups('DynamicPriceSale', 'dynamicPriceSale');
   }
 
   return {
     module,
-    moduleIds: collectModuleIds(module),
     deploymentId,
     parameters,
     contracts,
     instances,
-    initializedTransferPolicy,
     deploymentStart,
   };
 }
@@ -377,6 +293,7 @@ async function readIgnitionDeploymentStart(
 export function isPolicyOnlyDeployment(modules: NormalizedModules): boolean {
   return (
     modules.tdfTransferPolicy &&
+    !modules.villageAccess &&
     !modules.communityToken &&
     !modules.presenceToken &&
     !modules.sweatToken &&
@@ -384,16 +301,6 @@ export function isPolicyOnlyDeployment(modules: NormalizedModules): boolean {
     !modules.citizenNft &&
     !modules.dynamicPriceSale
   );
-}
-
-function collectModuleIds(module: IgnitionModule): string[] {
-  const ids = new Set<string>();
-  const visit = (current: IgnitionModule): void => {
-    ids.add(current.id);
-    for (const child of current.submodules) visit(child);
-  };
-  visit(module);
-  return [...ids].sort();
 }
 
 function titleFromSlug(slug: string, suffix: string): string {

@@ -2,33 +2,14 @@
 
 ## Consumer boundary
 
-The API and UI consume the same immutable descriptor written automatically after a deployment or upgrade has been
-fully reconciled. They do not read Ignition state, the operator manifest, build artifacts, or hand-maintained address
-and ABI files.
+There is currently no generated API/UI descriptor. The repository commits the schema-2 operational manifest and the
+real-network Ignition deployment directory. The manifest provides canonical names, proxy/plain addresses, current
+implementation addresses and code hashes, but intentionally does not duplicate ABIs or historical ABI revisions.
+Compiled ABIs remain in Hardhat/Ignition artifacts.
 
-Descriptor paths are:
-
-- `export/villages/<chainId>/<villageSlug>/<revision>.json`
-- `export/profiles/<deploymentProfile>/<chainId>/<villageSlug>/<revision>.json`
-
-The schema-1 descriptor contains:
-
-- deployment kind/profile, village slug, chain ID, network, config hash, and selected modules;
-- the exact earliest successful deployment block and block hash;
-- each proxy/plain-contract address and deployment name;
-- every implementation revision's address, ABI, and ABI hash, with the initial revision effective from
-  `deploymentStart` and every later revision tied to an exact `Upgraded` event;
-- display-only product aliases;
-- a deterministic content-hash `revision`.
-
-Consumers must reject any schema other than `1`, require the connected chain ID to match, use proxy addresses for
-upgradeable contracts, and pin an explicitly reviewed descriptor path and `revision`. The deployment tool creates a
-descriptor only after live authority reconciliation succeeds, so consumers need no ownership-status polling. A
-later upgrade creates a new descriptor file; it never modifies a previously activated revision.
-
-The UI normally needs the proxy address and latest contract revision. The API/indexer retains every revision and
-selects the ABI by its activation boundary when decoding historical logs. The descriptor itself is the direct
-API/UI input; no second generated or copied ABI file is required.
+When an API or UI integration has a concrete release and historical-indexing requirement, define a small projection
+for that consumer from these committed records. Do not make the operational deployment manifest grow into a
+speculative distribution format.
 
 ## Contract clients
 
@@ -106,8 +87,9 @@ should be visible and revocable.
 ## Event and upgrade handling
 
 Index events using `(chainId, contract, transactionHash, logIndex)`, with chain finality and reorg rollback. Start from
-the descriptor's `deploymentStart`. For each log, choose the last contract revision whose deployment block or
-`Upgraded` event is at or before the log's exact block/transaction/log position.
+the manifest's `deploymentStart`. Because the manifest does not embed historical ABIs, pair each proxy's reviewed
+source artifacts with its reconciled manifest upgrade records and on-chain `Upgraded` events. For each log, choose the
+last contract revision active at or before the log's exact block/transaction/log position.
 
 Relevant TokenizedStays events include booking creation/cancellation/pruning, deposit/withdrawal, balance
 reconciliation, and orphan recovery. Citizenship history comes from `CitizenshipIssued`,

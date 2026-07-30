@@ -60,7 +60,7 @@ async function expectRejected(promise: Promise<unknown>, message: string): Promi
 describe('Safe owner-action status', function () {
   it('tracks confirmation readiness without deciding on-chain completion', async function () {
     const awaiting = await refreshSafeOwnerActionsStatus(42220, prepared(), {client: client()});
-    expect(awaiting.serviceStatus).to.include({
+    expect(awaiting).to.include({
       status: 'awaiting-confirmations',
       confirmationsSubmitted: 1,
       confirmationsRequired: 2,
@@ -75,18 +75,18 @@ describe('Safe owner-action status', function () {
       ],
     });
     const ready = await refreshSafeOwnerActionsStatus(42220, prepared(), {client: readyClient});
-    expect(ready.serviceStatus?.status).to.equal('ready-to-execute');
+    expect(ready.status).to.equal('ready-to-execute');
   });
 
   it('records successful and failed service execution state', async function () {
     const executed = await refreshSafeOwnerActionsStatus(42220, prepared(), {
       client: client({isExecuted: true, isSuccessful: true, transactionHash: `0x${'22'.repeat(32)}`}),
     });
-    expect(executed.serviceStatus?.status).to.equal('executed');
+    expect(executed.status).to.equal('executed');
     const failed = await refreshSafeOwnerActionsStatus(42220, prepared(), {
       client: client({isExecuted: true, isSuccessful: false}),
     });
-    expect(failed.serviceStatus?.status).to.equal('failed');
+    expect(failed.status).to.equal('failed');
   });
 
   it('rejects responses for another Safe or transaction', async function () {

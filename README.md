@@ -42,9 +42,11 @@ yarn test
 yarn validate:upgrades
 yarn deploy:village -- --config config.json --network celoSepolia
 yarn deploy:tdf -- --config config.json --network celoSepolia
-yarn verify:village -- --manifest <manifest.json>
+yarn hardhat --network celoSepolia ignition verify <deployment-id>
 yarn upgrade:prepare -- --manifest <manifest.json> --contract <name> \
   --implementation <artifact> --version <id> --network <network>
+yarn upgrade:submit -- --manifest <manifest.json> --upgrade <name>:<id>
+yarn upgrade:status -- --manifest <manifest.json> --upgrade <name>:<id>
 ```
 
 Bare `yarn deploy` only prints help; it never sends a transaction.
@@ -52,16 +54,15 @@ Bare `yarn deploy` only prints help; it never sends a transaction.
 ## Deployment records and schemas
 
 Hardhat Ignition owns transaction journaling and resumption. A strict deployment manifest summarizes reconciled
-on-chain state for operators; it does not duplicate the Ignition journal. Once the final owner holds every authority,
-the deployment tooling automatically writes one immutable consumer descriptor for both the API and UI. The descriptor
-contains stable addresses, complete ABI revision history, exact activation boundaries, aliases, and routing metadata.
+on-chain state for operators; it does not duplicate the Ignition journal. Reviewed immutable configs, real-network
+Ignition directories, and manifests are committed together. A consumer-specific export will be introduced only when
+an API or UI has a concrete release format to consume.
 
-- Deployment config: `schemaVersion: 1`.
-- Deployment manifest: `schemaVersion: 1`, with `configSchemaVersion: 1`.
-- Consumer descriptor: `schemaVersion: 1`.
+- Deployment config: `schemaVersion: 2`.
+- Deployment manifest: `schemaVersion: 2`.
 
 `schemaVersion` identifies the JSON wire format. It is not a contract version, proxy storage version, or Ignition
-journal version. No earlier production deployments exist, so only schema 1 is supported; removed draft shapes fail
+journal version. No earlier production deployments exist, so only schema 2 is supported; removed draft shapes fail
 before deployment instead of being migrated. See [Deployment schemas](./docs/DEPLOYMENT.md#deployment-schemas) for
 the full explanation.
 

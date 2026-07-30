@@ -2,12 +2,10 @@ import path from 'node:path';
 import {getAddress, keccak256, toUtf8Bytes, ZeroAddress} from 'ethers';
 import {buildUpgradeImplementationModule} from '../../../ignition/modules/upgrades/UpgradeImplementation.js';
 import {prepareSafeOwnerActions} from '../safe-service.js';
-import {outputRootForManifest, writeConsumerDescriptor} from '../consumer-descriptor.js';
 import {reconcileExecutedUpgrade} from '../upgrades.js';
 import {isSupportedUupsContract, readUpgradeAuthority} from '../uups-contracts.js';
 import {
   currentImplementationAddress,
-  hashContractAbi,
   readVillageDeploymentManifest,
   writeVillageDeploymentManifest,
   type FinalOwnerConfig,
@@ -15,7 +13,6 @@ import {
   type PendingOwnerAction,
   type VillageDeploymentManifest,
 } from '../village.js';
-import {verifyIgnitionDeployment} from '../verification.js';
 
 export interface PrepareUpgradeOptions {
   manifestPath: string;
@@ -60,7 +57,7 @@ export async function prepareUpgradeCommand(
   const liveImplementation = getAddress(await context.upgrades.erc1967.getImplementationAddress(record.address));
 
   // Reconcile a prepared upgrade that was executed externally before attempting to prepare another candidate.
-  const executedCandidate = [...(manifest.upgradeHistory ?? [])]
+  const executedCandidate = [...(manifest.upgrades ?? [])]
     .reverse()
     .find(
       (item) =>
@@ -83,22 +80,11 @@ export async function prepareUpgradeCommand(
       throw new Error(`${options.contractName} live implementation did not execute the matching prepared upgrade`);
     }
     await writeVillageDeploymentManifest(manifestPath, manifest);
-    if (manifest.status === 'complete') {
-      await writeConsumerDescriptor(manifest, outputRootForManifest(manifestPath));
-    }
     console.log(`${options.contractName} upgrade reconciled: ${liveImplementation}`);
     return manifest;
   }
 
-  const previous = [...(manifest.upgradeHistory ?? [])]
-    .reverse()
-    .find(
-      (item) =>
-        item.contractName === options.contractName &&
-        item.status === 'executed' &&
-        getAddress(item.newImplementation) === liveImplementation,
-    );
-  const currentArtifact = previous?.nextArtifact ?? options.contractName;
+  const currentArtifact = record.artifact;
   const currentFactory = await context.ethers.getContractFactory(currentArtifact);
   const nextFactory = await context.ethers.getContractFactory(options.implementation);
   const callArgs = options.callArgs ? JSON.parse(options.callArgs) : [];
@@ -111,7 +97,7 @@ export async function prepareUpgradeCommand(
       JSON.stringify([options.contractName, options.implementation, options.version, liveImplementation, callData]),
     ),
   );
-  const sameVersion = (manifest.upgradeHistory ?? []).find(
+  const sameVersion = (manifest.upgrades ?? []).find(
     (item) => item.contractName === options.contractName && item.version === options.version,
   );
   if (sameVersion) {
@@ -120,7 +106,7 @@ export async function prepareUpgradeCommand(
     console.log(`${options.contractName} upgrade already ${sameVersion.status}: ${sameVersion.newImplementation}`);
     return manifest;
   }
-  const otherPrepared = (manifest.upgradeHistory ?? []).find(
+  const otherPrepared = (manifest.upgrades ?? []).find(
     (item) => item.contractName === options.contractName && item.status === 'prepared',
   );
   if (otherPrepared) throw new Error(`${options.contractName} already has prepared upgrade '${otherPrepared.version}'`);
@@ -161,15 +147,13 @@ export async function prepareUpgradeCommand(
   const owner = await classifyAuthority(authority.current, context.ethers);
   const ownerTransaction =
     owner.type === 'safe' ? await prepareSafeOwnerActions(owner, [ownerAction], context.provider) : undefined;
-  const verification = await verifyIgnitionDeployment(context.networkName, deploymentId);
-  const candidateAbi = JSON.parse(nextFactory.interface.formatJson()) as unknown[];
   // Persist only a fully validated, deployed, bytecode-hashed, and successfully simulated candidate.
   const upgrade: ManifestUpgrade = {
     contractName: options.contractName,
     version: options.version,
     nextArtifact: options.implementation,
     deploymentId,
-    moduleId: module.id,
+    graphId: module.id,
     previousImplementation: liveImplementation,
     newImplementation,
     status: 'prepared',
@@ -177,16 +161,16 @@ export async function prepareUpgradeCommand(
     callData,
     specHash,
     implementationCodeHash: keccak256(implementationCode),
-    candidateAbi,
-    candidateAbiHash: hashContractAbi(candidateAbi),
     preparedAtBlock: {blockNumber: String(preparedBlock.number), blockHash: preparedBlock.hash},
     ownerAction,
     ownerTransaction,
-    verification,
   };
-  manifest.upgradeHistory = [...(manifest.upgradeHistory ?? []), upgrade];
+  manifest.upgrades = [...(manifest.upgrades ?? []), upgrade];
   await writeVillageDeploymentManifest(manifestPath, manifest);
   console.log(`${options.contractName} upgrade prepared: ${newImplementation}`);
+  if (!['default', 'localhost'].includes(context.networkName)) {
+    console.log(`Verify explicitly: yarn hardhat --network ${context.networkName} ignition verify ${deploymentId}`);
+  }
   return manifest;
 }
 

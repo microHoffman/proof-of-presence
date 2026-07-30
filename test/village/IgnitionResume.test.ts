@@ -31,12 +31,11 @@ describe('Ignition HTTP-network recovery', function () {
 
     try {
       const config = {
-        schemaVersion: 1,
+        schemaVersion: 2,
         villageSlug: 'ignition-resume-test',
         chainId: 31337,
-        deploymentProfile: 'token-village',
+        contracts: ['CommunityToken', 'VillageCitizenNFT'],
         finalOwner: {type: 'eoa', address: account(1)},
-        modules: [],
         apiOperator: account(2),
         citizenNft: {baseURI: 'https://citizen.example/'},
         communityToken: {maxSupply: MaxUint256.toString()},
@@ -48,7 +47,7 @@ describe('Ignition HTTP-network recovery', function () {
       await runTsxWorker('scripts/deploy-village.ts', workerArgs, {cwd: process.cwd(), env});
       const manifestPath = path.join(root, 'deployments', 'villages', '31337', 'ignition-resume-test.json');
       const first = JSON.parse(await readFile(manifestPath, 'utf8'));
-      const journalPath = path.join(ignitionRoot, 'deployments', first.deploymentTool.deploymentId, 'journal.jsonl');
+      const journalPath = path.join(ignitionRoot, 'deployments', first.graph.deploymentId, 'journal.jsonl');
       const firstJournal = await readFile(journalPath, 'utf8');
       const firstConfirmations = firstJournal.split('"TRANSACTION_CONFIRM"').length - 1;
 
@@ -63,7 +62,7 @@ describe('Ignition HTTP-network recovery', function () {
       expect(resumed.contracts.VillageAccess.address).to.equal(first.contracts.VillageAccess.address);
       expect(resumed.contracts.CommunityToken.address).to.equal(first.contracts.CommunityToken.address);
       expect(resumed.contracts.VillageCitizenNFT.address).to.equal(first.contracts.VillageCitizenNFT.address);
-      expect(resumed.deploymentTool.deploymentId).to.equal(first.deploymentTool.deploymentId);
+      expect(resumed.graph).to.deep.equal(first.graph);
       expect(resumed.deploymentStart).to.deep.equal(first.deploymentStart);
       expect(resumed.deploymentStart.blockNumber).to.equal('1');
       expect(resumedConfirmations).to.equal(firstConfirmations);

@@ -1,20 +1,14 @@
 import path from 'node:path';
-import {getAddress} from 'ethers';
-import {outputRootForManifest, writeConsumerDescriptor} from '../consumer-descriptor.js';
 import {submitOwnershipHandoff} from '../handoff.js';
-import {proposeSafeOwnerActions, type SafeProposalOptions} from '../safe-service.js';
-import {reconcileExecutedUpgrade} from '../upgrades.js';
-import {readUpgradeAuthority} from '../uups-contracts.js';
+import type {SafeProposalOptions} from '../safe-service.js';
 import {
   readVillageDeploymentManifest,
   writeVillageDeploymentManifest,
-  type ManifestUpgrade,
   type VillageDeploymentManifest,
 } from '../village.js';
 
 export interface OwnerSubmitOptions {
   manifestPath: string;
-  upgrade?: string;
   safeOptions?: SafeProposalOptions;
 }
 
@@ -32,81 +26,12 @@ export async function ownerSubmitCommand(
   const chainId = Number((await context.ethers.provider.getNetwork()).chainId);
   if (chainId !== manifest.chainId) throw new Error(`Manifest chainId ${manifest.chainId} does not match ${chainId}`);
 
-  if (options.upgrade) {
-    const upgrade = selectUpgrade(manifest, options.upgrade);
-    // Reconciliation makes this command safe to repeat after either a Safe or EOA executed the prepared call.
-    const reconciliation = await reconcileExecutedUpgrade(manifest.contracts, upgrade, context.ethers.provider);
-    if (reconciliation.executed) {
-      await writeVillageDeploymentManifest(manifestPath, manifest);
-      if (manifest.status === 'complete') {
-        await writeConsumerDescriptor(manifest, outputRootForManifest(manifestPath));
-      }
-      console.log(`Upgrade ${options.upgrade} was already executed and is now reconciled`);
-      return manifest;
-    }
-    if (upgrade.ownerTransaction) {
-      if (!options.safeOptions) throw new Error('SAFE_PROPOSER_PRIVATE_KEY is required for a Safe-owned upgrade');
-      upgrade.ownerTransaction = await proposeSafeOwnerActions(
-        manifest.chainId,
-        upgrade.ownerTransaction,
-        options.safeOptions,
-      );
-    } else {
-      await submitEoaUpgrade(upgrade, manifest, context.ethers);
-    }
-    await writeVillageDeploymentManifest(manifestPath, manifest);
-    if (upgrade.status === 'executed' && manifest.status === 'complete') {
-      await writeConsumerDescriptor(manifest, outputRootForManifest(manifestPath));
-    }
-    console.log(`Owner action submitted for upgrade ${options.upgrade}`);
-    return manifest;
-  }
-
   const updated = await submitOwnershipHandoff(
     manifest,
-    {
-      ethers: context.ethers,
-      networkName: context.networkName,
-    },
+    {ethers: context.ethers, networkName: context.networkName},
     options.safeOptions,
   );
   await writeVillageDeploymentManifest(manifestPath, updated);
-  if (updated.status === 'complete') {
-    await writeConsumerDescriptor(updated, outputRootForManifest(manifestPath));
-  }
-  console.log(updated.handoffTransaction?.proposal?.status ?? updated.status);
+  console.log(updated.status);
   return updated;
-}
-
-async function submitEoaUpgrade(
-  upgrade: ManifestUpgrade,
-  manifest: VillageDeploymentManifest,
-  ethers: any,
-): Promise<void> {
-  const record = manifest.contracts[upgrade.contractName];
-  const authority = (await readUpgradeAuthority(upgrade.contractName, record.address, ethers)).current;
-  const signers = await ethers.getSigners();
-  const signer = signers.find((candidate: {address: string}) => getAddress(candidate.address) === authority);
-  if (!signer) throw new Error(`Current upgrade authority ${authority} is not an available Hardhat signer`);
-  const transaction = await signer.sendTransaction({to: upgrade.ownerAction.to, data: upgrade.ownerAction.data});
-  const receipt = await transaction.wait();
-  if (!receipt || Number(receipt.status) !== 1) throw new Error('Upgrade owner action failed');
-  // A successful receipt is insufficient: the ERC-1967 slot and implementation bytecode are the execution proof.
-  const reconciliation = await reconcileExecutedUpgrade(manifest.contracts, upgrade, ethers.provider);
-  if (!reconciliation.executed) {
-    throw new Error(
-      `${upgrade.contractName} upgrade transaction succeeded but the proxy slot still uses ` +
-        reconciliation.liveImplementation,
-    );
-  }
-}
-
-function selectUpgrade(manifest: VillageDeploymentManifest, selector: string): ManifestUpgrade {
-  const [contractName, version] = selector.split(':');
-  const upgrade = manifest.upgradeHistory?.find(
-    (item) => item.contractName === contractName && item.version === version,
-  );
-  if (!upgrade) throw new Error(`Manifest has no upgrade '${selector}'`);
-  if (upgrade.status !== 'prepared') throw new Error(`Upgrade '${selector}' is not prepared`);
-  return upgrade;
 }

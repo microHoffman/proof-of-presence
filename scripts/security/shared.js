@@ -2,25 +2,17 @@ import {existsSync, mkdirSync, realpathSync} from 'node:fs';
 import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 import process from 'node:process';
+import projectConfig from '../../config/project.json' with {type: 'json'};
 
-export const ACTIVE_CONTRACTS = [
-  ['src/village/access/VillageAccess.sol', 'VillageAccess'],
-  ['src/village/citizenship/VillageCitizenNFT.sol', 'VillageCitizenNFT'],
-  ['src/village/tokens/CommunityToken.sol', 'CommunityToken'],
-  ['src/village/tokens/VillagePresenceToken.sol', 'VillagePresenceToken'],
-  ['src/village/tokens/VillageSweatToken.sol', 'VillageSweatToken'],
-  ['src/village/stays/TokenizedStays.sol', 'TokenizedStays'],
-  ['src/village/sales/DynamicPriceSale.sol', 'DynamicPriceSale'],
-  ['src/profiles/tdf/TDFTransferPolicy.sol', 'TDFTransferPolicy'],
-  ['src/profiles/tdf/TDFV1BondingCurve.sol', 'TDFV1BondingCurve'],
-];
+export const ACTIVE_CONTRACTS = projectConfig.productionContracts;
+export const COMPILER_SETTINGS = projectConfig.compiler;
 
 export const SLITHER_VERSION = process.env.SLITHER_VERSION ?? '0.11.6';
 export const SLITHER_SOURCE =
   process.env.SLITHER_SOURCE ?? 'git+https://github.com/crytic/slither.git@050cc0a094e77bfd58e8228ae3bb6aa15c65edb4';
 
-const SOLC_VERSION = '0.8.35';
-const SOLC_BUILD_PATTERN = /Version: 0\.8\.35\+commit\.47b9dedd/;
+export const SOLC_VERSION = COMPILER_SETTINGS.version;
+export const SOLC_FULL_VERSION = COMPILER_SETTINGS.fullVersion;
 
 function executableOnPath(name) {
   if (path.isAbsolute(name) || name.includes(path.sep)) return existsSync(name) ? name : undefined;
@@ -50,8 +42,8 @@ export function resolveSlitherSolc() {
   const executable = realpathSync(resolvedSolc);
   const version = run(executable, ['--version'], {capture: true});
   const output = `${version.stdout ?? ''}${version.stderr ?? ''}`;
-  if (version.status !== 0 || !SOLC_BUILD_PATTERN.test(output)) {
-    throw new Error(`Expected ${source} to be solc 0.8.35+commit.47b9dedd, received:\n${output}`);
+  if (version.status !== 0 || !output.includes(`Version: ${SOLC_FULL_VERSION}`)) {
+    throw new Error(`Expected ${source} to be solc ${SOLC_FULL_VERSION}, received:\n${output}`);
   }
 
   return executable;
@@ -66,7 +58,7 @@ export function slitherBuildArgs() {
     '--solc-remaps',
     '@openzeppelin/=node_modules/@openzeppelin/',
     '--solc-args',
-    '--optimize --optimize-runs 2000 --evm-version cancun',
+    `--optimize --optimize-runs ${COMPILER_SETTINGS.optimizerRuns} --evm-version ${COMPILER_SETTINGS.evmVersion}`,
   ];
 }
 

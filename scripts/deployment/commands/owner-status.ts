@@ -1,18 +1,13 @@
 import path from 'node:path';
-import {outputRootForManifest, writeConsumerDescriptor} from '../consumer-descriptor.js';
 import {refreshOwnershipHandoff} from '../handoff.js';
-import {refreshSafeOwnerActionsStatus} from '../safe-service.js';
-import {reconcileExecutedUpgrade} from '../upgrades.js';
 import {
   readVillageDeploymentManifest,
   writeVillageDeploymentManifest,
-  type ManifestUpgrade,
   type VillageDeploymentManifest,
 } from '../village.js';
 
 export interface OwnerStatusOptions {
   manifestPath: string;
-  upgrade?: string;
   apiKey?: string;
   txServiceUrl?: string;
 }
@@ -32,29 +27,6 @@ export async function ownerStatusCommand(
   if (chainId !== manifest.chainId) {
     throw new Error(`Connected chain ${chainId} does not match manifest chain ${manifest.chainId}`);
   }
-  if (options.upgrade) {
-    const upgrade = selectUpgrade(manifest, options.upgrade);
-    // Live proxy state is authoritative and can be reconciled without the optional Safe Transaction Service.
-    const reconciliation = await reconcileExecutedUpgrade(manifest.contracts, upgrade, context.ethers.provider);
-    if (upgrade.ownerTransaction && (options.apiKey || options.txServiceUrl)) {
-      upgrade.ownerTransaction = await refreshSafeOwnerActionsStatus(manifest.chainId, upgrade.ownerTransaction, {
-        apiKey: options.apiKey,
-        txServiceUrl: options.txServiceUrl,
-      });
-    }
-    if (upgrade.ownerTransaction?.serviceStatus?.status === 'executed' && !reconciliation.executed) {
-      throw new Error(
-        `Safe service reports ${upgrade.contractName} upgrade executed but the proxy slot still uses ` +
-          reconciliation.liveImplementation,
-      );
-    }
-    await writeVillageDeploymentManifest(manifestPath, manifest);
-    if (upgrade.status === 'executed' && manifest.status === 'complete') {
-      await writeConsumerDescriptor(manifest, outputRootForManifest(manifestPath));
-    }
-    console.log(`${upgrade.status}: ${reconciliation.liveImplementation}`);
-    return manifest;
-  }
   const safeServiceOptions =
     manifest.handoffTransaction && (options.apiKey || options.txServiceUrl)
       ? {apiKey: options.apiKey, txServiceUrl: options.txServiceUrl}
@@ -65,18 +37,6 @@ export async function ownerStatusCommand(
     safeServiceOptions,
   );
   await writeVillageDeploymentManifest(manifestPath, updated);
-  if (updated.status === 'complete') {
-    await writeConsumerDescriptor(updated, outputRootForManifest(manifestPath));
-  }
   console.log(updated.status);
   return updated;
-}
-
-function selectUpgrade(manifest: VillageDeploymentManifest, selector: string): ManifestUpgrade {
-  const [contractName, version] = selector.split(':');
-  const upgrade = manifest.upgradeHistory?.find(
-    (item) => item.contractName === contractName && item.version === version,
-  );
-  if (!upgrade) throw new Error(`Manifest has no upgrade '${selector}'`);
-  return upgrade;
 }

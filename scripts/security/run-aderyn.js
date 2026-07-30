@@ -4,11 +4,9 @@ import {homedir} from 'node:os';
 import path from 'node:path';
 import console from 'node:console';
 import process from 'node:process';
-import {ensureReportDirectory, run} from './shared.js';
+import {COMPILER_SETTINGS, SOLC_FULL_VERSION, SOLC_VERSION, ensureReportDirectory, run} from './shared.js';
 
-const SOLC_VERSION = '0.8.35';
-const SOLC_BUILD_PATTERN = /Version: 0\.8\.35\+commit\.47b9dedd/;
-const EVM_VERSION = 'cancun';
+const EVM_VERSION = COMPILER_SETTINGS.evmVersion;
 const ADERYN_PACKAGE = '@cyfrin/aderyn@0.6.8';
 const PATH_EXCLUDES = 'src/village/test,security/smt,test';
 const REQUIRED_SOURCES = [
@@ -31,8 +29,8 @@ function captured(command, args, options = {}) {
 
 function assertSolcVersion(executable, source) {
   const {result, output} = captured(executable, ['--version']);
-  if (result.status !== 0 || !SOLC_BUILD_PATTERN.test(output)) {
-    throw new Error(`Expected ${source} to be solc 0.8.35+commit.47b9dedd, received:\n${output}`);
+  if (result.status !== 0 || !output.includes(`Version: ${SOLC_FULL_VERSION}`)) {
+    throw new Error(`Expected ${source} to be solc ${SOLC_FULL_VERSION}, received:\n${output}`);
   }
   return output;
 }
@@ -78,8 +76,12 @@ if (analysis.result.stderr) process.stderr.write(analysis.result.stderr);
 if (analysis.result.status !== 0) {
   throw new Error(`Aderyn failed with exit code ${analysis.result.status ?? 'unknown'}.`);
 }
-if (!/Ingesting [1-9][0-9]* compiled files \[solc : v0\.8\.35\]/.test(analysis.output)) {
-  throw new Error('Aderyn did not compile a nonzero source scope with solc 0.8.35.');
+if (
+  !new RegExp(`Ingesting [1-9][0-9]* compiled files \\[solc : v${SOLC_VERSION.replaceAll('.', '\\.')}\\]`).test(
+    analysis.output,
+  )
+) {
+  throw new Error(`Aderyn did not compile a nonzero source scope with solc ${SOLC_VERSION}.`);
 }
 if (!new RegExp(`EVM version - ${EVM_VERSION}`).test(analysis.output)) {
   throw new Error(`Aderyn did not target the required ${EVM_VERSION} EVM version.`);

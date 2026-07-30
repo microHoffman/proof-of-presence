@@ -45,9 +45,11 @@ export async function submitOwnershipHandoff(
     const prepared = reconciled.handoffTransaction ?? (await prepare(owner, actions, safeOptions.provider));
     if (!prepared) throw new Error('Deployment has no pending ownership handoff actions');
     const propose = context.proposeSafeTransaction ?? proposeSafeOwnerActions;
+    const proposal = await propose(reconciled.chainId, prepared, safeOptions);
+    console.log(`Safe transaction ${proposal.status}: ${prepared.safeTxHash}`);
     return {
       ...reconciled,
-      handoffTransaction: await propose(reconciled.chainId, prepared, safeOptions),
+      handoffTransaction: proposal.transaction,
     };
   }
 
@@ -79,16 +81,9 @@ export async function refreshOwnershipHandoff(
   context: VillageDeploymentContext,
   safeOptions?: SafeServiceOptions,
 ): Promise<VillageDeploymentManifest> {
-  let refreshed = manifest;
   if (manifest.handoffTransaction && safeOptions) {
-    refreshed = {
-      ...manifest,
-      handoffTransaction: await refreshSafeOwnerActionsStatus(
-        manifest.chainId,
-        manifest.handoffTransaction,
-        safeOptions,
-      ),
-    };
+    const status = await refreshSafeOwnerActionsStatus(manifest.chainId, manifest.handoffTransaction, safeOptions);
+    console.log(`Safe transaction ${status.status}: ${manifest.handoffTransaction.safeTxHash}`);
   }
-  return reconcileOwnershipHandoff(refreshed, context);
+  return reconcileOwnershipHandoff(manifest, context);
 }

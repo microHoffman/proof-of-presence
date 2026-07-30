@@ -7,8 +7,7 @@ function stableId(value: string): string {
 
 /**
  * Builds a stable Ignition Module that deploys only a proposed implementation.
- * The proxy upgrade itself is a final-owner/Safe action and is never sent by
- * the Closer deployer.
+ * The live authority submits the proxy upgrade separately after preparation.
  */
 export function buildUpgradeImplementationModule(
   contractName: string,

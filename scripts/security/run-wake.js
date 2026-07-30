@@ -4,7 +4,7 @@ import {existsSync, readFileSync, renameSync, rmSync, writeFileSync} from 'node:
 import path from 'node:path';
 import console from 'node:console';
 import process from 'node:process';
-import {ensureReportDirectory, run} from './shared.js';
+import {COMPILER_SETTINGS, ensureReportDirectory, run} from './shared.js';
 
 const WAKE_REPOSITORY = 'https://github.com/microhoffman/wake.git';
 const WAKE_COMMIT = '6484ca1961fab54fd594aef9479880d0522bdbcd';
@@ -115,7 +115,11 @@ const metadata = {
   generatedAt: new Date().toISOString(),
   repository: {commit: repositoryCommit, dirty: repositoryDirty},
   wake: {repository: WAKE_REPOSITORY, commit: WAKE_COMMIT, source: wakeSource, version: wakeVersion},
-  compiler: {targetVersion: '0.8.35', evmVersion: 'cancun', optimizerRuns: 2000},
+  compiler: {
+    targetVersion: COMPILER_SETTINGS.version,
+    evmVersion: COMPILER_SETTINGS.evmVersion,
+    optimizerRuns: COMPILER_SETTINGS.optimizerRuns,
+  },
   config: {path: CONFIG_PATH, sha256: configSha256},
   targets: TARGETS,
   requiredSources: REQUIRED_SOURCES,

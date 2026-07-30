@@ -1,243 +1,69 @@
-import {mkdir, readFile, rename, writeFile} from 'node:fs/promises';
 import path from 'node:path';
-import {getAddress, id, isAddress, keccak256, toUtf8Bytes, ZeroAddress, ZeroHash} from 'ethers';
-import type {SafeTransactionData} from '@safe-global/types-kit';
-import {z} from 'zod';
-import {canonicalJsonStringify} from './canonical-json.js';
-import {writeConsumerDescriptor} from './consumer-descriptor.js';
+import {getAddress, id, isAddress, keccak256, ZeroAddress, ZeroHash} from 'ethers';
 import {deployVillageIgnitionGraph, isPolicyOnlyDeployment, validateSelectedImplementations} from './ignition.js';
 import {prepareSafeOwnerActions, proposeSafeOwnerActions} from './safe-service.js';
+import {
+  readExistingVillageDeploymentManifest,
+  writeVillageDeploymentManifest,
+  type ManifestContract,
+  type ManualAction,
+  type PendingOwnerAction,
+  type VillageDeploymentManifest,
+} from './manifest.js';
+import {
+  contractSelection,
+  graphIdForSpec,
+  hashResolvedDeploymentSpec,
+  type ContractSelection,
+  type FinalOwnerConfig,
+  type ResolvedDeploymentSpec,
+} from './spec.js';
 
-export type DeploymentProfile = 'minimal-village' | 'token-village' | 'tokenized-stays-village' | 'tdf';
+export {
+  parseVillageDeploymentManifest,
+  readVillageDeploymentManifest,
+  VillageDeploymentManifestSchema,
+  writeVillageDeploymentManifest,
+  type BlockReference,
+  type LogReference,
+  type ManifestContract,
+  type ManifestUpgrade,
+  type ManualAction,
+  type PendingOwnerAction,
+  type PreparedSafeTransaction,
+  type VillageDeploymentManifest,
+} from './manifest.js';
+export {
+  type CitizenNftConfig,
+  type CommunityTokenConfig,
+  type ContractName,
+  type DecayingTokenConfig,
+  type DynamicPriceSaleConfig,
+  type EoaOwnerConfig,
+  type FinalOwnerConfig,
+  type ResolvedDeploymentSpec,
+  type RoleGrantConfig,
+  type SafeOwnerConfig,
+  type TdfTransferPolicyConfig,
+  TDF_COMMUNITY_TOKEN_MAX_SUPPLY,
+  TDF_DEFAULT_CLOSER_FEE_BPS,
+  TDF_DYNAMIC_PRICE_SALE_CAP,
+  TDF_MAXIMUM_PURCHASE,
+  TDF_MAXIMUM_RECIPIENT_BALANCE,
+  TDF_MINIMUM_OPERATING_SUPPLY,
+  TDF_MINIMUM_PURCHASE,
+  TDF_PURCHASE_GRANULARITY,
+} from './spec.js';
 
-export interface EoaOwnerConfig {
-  type: 'eoa';
-  address: string;
-}
-
-export interface SafeOwnerConfig {
-  type: 'safe';
-  address: string;
-  expectedOwners?: string[];
-  expectedThreshold?: number;
-}
-
-export type FinalOwnerConfig = EoaOwnerConfig | SafeOwnerConfig;
-
-export interface VillageDeploymentConfig {
-  schemaVersion: 1;
-  villageSlug: string;
-  chainId: number;
-  deploymentProfile: DeploymentProfile;
-  finalOwner: FinalOwnerConfig;
-  modules: string[];
-  apiOperator: string;
-  communityToken?: CommunityTokenConfig;
-  citizenNft?: CitizenNftConfig;
-  presenceToken?: DecayingTokenConfig;
-  sweatToken?: DecayingTokenConfig;
-  tdfTransferPolicy?: TdfTransferPolicyConfig;
-  dynamicPriceSale?: DynamicPriceSaleConfig;
-  initialRoleGrants?: RoleGrantConfig[];
-}
-
-export interface CitizenNftConfig {
-  name?: string;
-  symbol?: string;
-  baseURI: string;
-  operators?: string[];
-}
-
-export interface CommunityTokenConfig {
-  name?: string;
-  symbol?: string;
-  initialSupply?: string | number;
-  maxSupply?: string | number;
-  initialRecipient?: string;
-  transferPolicy?: string;
-  apiOperatorCanMint?: boolean;
-  minters?: string[];
-}
-
-export interface DecayingTokenConfig {
-  name?: string;
-  symbol?: string;
-  decayRatePerDay: string | number;
-}
-
-export interface TdfTransferPolicyConfig {
-  treasury: string;
-  allowedCounterparties?: string[];
-  restrictionsEnabled?: boolean;
-}
-
-export interface DynamicPriceSaleConfig {
-  quoteToken: string;
-  bondingCurve?: string;
-  villageTreasury: string;
-  closerFeeRecipient: string;
-  closerFeeBps?: number;
-  saleCap: string | number;
-  minimumPurchase: string | number;
-  maximumPurchase: string | number;
-  purchaseGranularity: string | number;
-  maximumRecipientBalance: string | number;
-}
-
-export interface RoleGrantConfig {
-  role: string;
-  account: string;
-}
-
-export interface NormalizedModules {
-  communityToken: boolean;
-  presenceToken: boolean;
-  sweatToken: boolean;
-  tokenizedStays: boolean;
-  tdfTransferPolicy: boolean;
-  citizenNft: boolean;
-  dynamicPriceSale: boolean;
-}
+/** Resolved schema accepted by the deployment engine after input parsing and dependency expansion. */
+export type VillageDeploymentConfig = ResolvedDeploymentSpec;
+export type NormalizedModules = ContractSelection;
 
 export interface ResolvedRoleGrant {
   role: string;
   roleName: string;
   account: string;
   source: 'module-derived' | 'config';
-}
-
-export interface PendingOwnerAction {
-  to: string;
-  contractName: string;
-  functionName: string;
-  args: unknown[];
-  data: string;
-  reason: string;
-}
-
-export interface ManualAction extends PendingOwnerAction {
-  kind: 'ownership-acceptance';
-  recipient: string;
-  initiatedTransactionHash?: string;
-  acceptAfter?: string;
-}
-
-export interface BlockReference {
-  blockNumber: string;
-  blockHash: string;
-}
-
-export interface LogReference extends BlockReference {
-  transactionHash: string;
-  transactionIndex: number;
-  logIndex: number;
-}
-
-export type RevisionEffectiveFrom =
-  {kind: 'deployment'; block: BlockReference} | {kind: 'upgrade'; event: LogReference};
-
-export interface ContractRevision {
-  implementationAddress?: string;
-  implementationRuntimeCodeHash?: string;
-  abi: unknown[];
-  abiHash: string;
-  effectiveFrom: RevisionEffectiveFrom;
-}
-
-export interface ManifestContract {
-  name: string;
-  deploymentName: string;
-  address: string;
-  constructorArgs?: unknown[];
-  initializerArgs?: unknown[];
-  revisions: ContractRevision[];
-  runtimeCodeHash?: string;
-  authority?: 'ownerless';
-}
-
-export interface PreparedSafeTransaction {
-  safeAddress: string;
-  safeTxHash: string;
-  data: SafeTransactionData;
-  proposal?: {
-    status: 'submitted' | 'already-submitted';
-    senderAddress?: string;
-    submittedAt: string;
-    txServiceUrl?: string;
-    origin?: string;
-  };
-  serviceStatus?: {
-    status: 'awaiting-confirmations' | 'ready-to-execute' | 'executed' | 'failed';
-    checkedAt: string;
-    confirmationsSubmitted: number;
-    confirmationsRequired: number;
-    isExecuted: boolean;
-    isSuccessful?: boolean;
-    executionTransactionHash?: string;
-    executionDate?: string;
-  };
-}
-
-export interface ManifestUpgrade {
-  contractName: string;
-  version: string;
-  nextArtifact: string;
-  deploymentId: string;
-  moduleId: string;
-  previousImplementation: string;
-  newImplementation: string;
-  status: 'prepared' | 'executed' | 'superseded';
-  validatedAt: string;
-  callData: string;
-  specHash: string;
-  implementationCodeHash: string;
-  candidateAbi: unknown[];
-  candidateAbiHash: string;
-  preparedAtBlock: BlockReference;
-  executedAt?: LogReference;
-  ownerAction: PendingOwnerAction;
-  ownerTransaction?: PreparedSafeTransaction;
-  verification?: unknown;
-}
-
-/**
- * Durable deployment record consumed by operators and downstream tooling.
- * It summarizes configured and observed onchain state; Ignition's journal remains the source for transaction resumption.
- */
-export interface VillageDeploymentManifest {
-  schemaVersion: 1;
-  deploymentKind: 'village' | 'profile';
-  villageSlug: string;
-  chainId: number;
-  configSchemaVersion: 1;
-  configHash: string;
-  sourceRevision?: string;
-  network: string;
-  deploymentProfile: DeploymentProfile;
-  modules: NormalizedModules;
-  deploymentStart: BlockReference;
-  contracts: Record<string, ManifestContract>;
-  compiler: {solidity: string};
-  openzeppelinVersion: string;
-  ownership: {
-    deployer: string;
-    finalOwner: FinalOwnerConfig;
-    handoffInitiatedAt?: string;
-  };
-  apiOperator: string;
-  roles: {initialGrants: ResolvedRoleGrant[]; apiOperatorGrants: ResolvedRoleGrant[]};
-  handoffTransaction?: PreparedSafeTransaction;
-  manualActions: ManualAction[];
-  verification: {attempts: unknown[]};
-  deploymentTool: {
-    name: 'hardhat-ignition';
-    deploymentId: string;
-    moduleIds: string[];
-    versions: Record<string, string>;
-  };
-  status: 'complete' | 'pending-handoff';
-  productAliases?: Record<string, string>;
-  upgradeHistory?: ManifestUpgrade[];
 }
 
 export interface VillageDeploymentContext {
@@ -251,198 +77,12 @@ export interface VillageDeploymentContext {
   projectRoot?: string;
   ignitionRoot?: string;
   outputRoot?: string;
-  manifestPathOverride?: string;
-  deploymentIdOverride?: string;
   writeManifest?: boolean;
 }
 
 export interface DeployVillageResult {
   manifest: VillageDeploymentManifest;
   manifestPath: string;
-  descriptorPath?: string;
-}
-
-const manifestAddress = z.string().refine(isAddress, 'must be a valid Ethereum address');
-const manifestHash = z.string().regex(/^0x[0-9a-fA-F]{64}$/, 'must be a 32-byte hex value');
-const manifestHex = z.string().regex(/^0x(?:[0-9a-fA-F]{2})*$/, 'must be an even-length hex value');
-const manifestBlockNumber = z.string().regex(/^\d+$/, 'must be a decimal block number');
-const manifestBlockReference = z.strictObject({
-  blockNumber: manifestBlockNumber,
-  blockHash: manifestHash,
-});
-const manifestLogReference = manifestBlockReference.extend({
-  transactionHash: manifestHash,
-  transactionIndex: z.number().int().nonnegative(),
-  logIndex: z.number().int().nonnegative(),
-});
-const manifestOwner = z.discriminatedUnion('type', [
-  z.strictObject({type: z.literal('eoa'), address: manifestAddress}),
-  z.strictObject({
-    type: z.literal('safe'),
-    address: manifestAddress,
-    expectedOwners: z.array(manifestAddress).optional(),
-    expectedThreshold: z.number().int().positive().optional(),
-  }),
-]);
-const manifestModules = z.strictObject({
-  communityToken: z.boolean(),
-  presenceToken: z.boolean(),
-  sweatToken: z.boolean(),
-  tokenizedStays: z.boolean(),
-  tdfTransferPolicy: z.boolean(),
-  citizenNft: z.boolean(),
-  dynamicPriceSale: z.boolean(),
-});
-const manifestOwnerAction = z.strictObject({
-  to: manifestAddress,
-  contractName: z.string().min(1),
-  functionName: z.string().min(1),
-  args: z.array(z.unknown()),
-  data: manifestHex,
-  reason: z.string().min(1),
-});
-const manifestManualAction = z.strictObject({
-  kind: z.literal('ownership-acceptance'),
-  to: manifestAddress,
-  contractName: z.string().min(1),
-  functionName: z.string().min(1),
-  args: z.array(z.unknown()),
-  data: manifestHex,
-  reason: z.string().min(1),
-  recipient: manifestAddress,
-  initiatedTransactionHash: manifestHash.optional(),
-  acceptAfter: z.string().min(1).optional(),
-});
-const manifestSafeTransaction = z.strictObject({
-  safeAddress: manifestAddress,
-  safeTxHash: manifestHash,
-  data: z.strictObject({
-    to: manifestAddress,
-    value: z.string(),
-    data: manifestHex,
-    operation: z.number().int(),
-    safeTxGas: z.string(),
-    baseGas: z.string(),
-    gasPrice: z.string(),
-    gasToken: manifestAddress,
-    refundReceiver: manifestAddress,
-    nonce: z.number().int().nonnegative(),
-  }),
-  proposal: z
-    .strictObject({
-      status: z.enum(['submitted', 'already-submitted']),
-      senderAddress: manifestAddress.optional(),
-      submittedAt: z.string().min(1),
-      txServiceUrl: z.string().min(1).optional(),
-      origin: z.string().min(1).optional(),
-    })
-    .optional(),
-  serviceStatus: z
-    .strictObject({
-      status: z.enum(['awaiting-confirmations', 'ready-to-execute', 'executed', 'failed']),
-      checkedAt: z.string().min(1),
-      confirmationsSubmitted: z.number().int().nonnegative(),
-      confirmationsRequired: z.number().int().nonnegative(),
-      isExecuted: z.boolean(),
-      isSuccessful: z.boolean().optional(),
-      executionTransactionHash: manifestHash.optional(),
-      executionDate: z.string().min(1).optional(),
-    })
-    .optional(),
-});
-const manifestContract = z.strictObject({
-  name: z.string().min(1),
-  deploymentName: z.string().min(1),
-  address: manifestAddress,
-  constructorArgs: z.array(z.unknown()).optional(),
-  initializerArgs: z.array(z.unknown()).optional(),
-  revisions: z
-    .array(
-      z.strictObject({
-        implementationAddress: manifestAddress.optional(),
-        implementationRuntimeCodeHash: manifestHash.optional(),
-        abi: z.array(z.unknown()),
-        abiHash: manifestHash,
-        effectiveFrom: z.discriminatedUnion('kind', [
-          z.strictObject({kind: z.literal('deployment'), block: manifestBlockReference}),
-          z.strictObject({kind: z.literal('upgrade'), event: manifestLogReference}),
-        ]),
-      }),
-    )
-    .min(1),
-  runtimeCodeHash: manifestHash.optional(),
-  authority: z.literal('ownerless').optional(),
-});
-const manifestRoleGrant = z.strictObject({
-  role: manifestHash,
-  roleName: z.string().min(1),
-  account: manifestAddress,
-  source: z.enum(['module-derived', 'config']),
-});
-const manifestUpgrade = z.strictObject({
-  contractName: z.string().min(1),
-  version: z.string().min(1),
-  nextArtifact: z.string().min(1),
-  deploymentId: z.string().min(1),
-  moduleId: z.string().min(1),
-  previousImplementation: manifestAddress,
-  newImplementation: manifestAddress,
-  status: z.enum(['prepared', 'executed', 'superseded']),
-  validatedAt: z.string().min(1),
-  callData: manifestHex,
-  specHash: manifestHash,
-  implementationCodeHash: manifestHash,
-  candidateAbi: z.array(z.unknown()),
-  candidateAbiHash: manifestHash,
-  preparedAtBlock: manifestBlockReference,
-  executedAt: manifestLogReference.optional(),
-  ownerAction: manifestOwnerAction,
-  ownerTransaction: manifestSafeTransaction.optional(),
-  verification: z.unknown().optional(),
-});
-
-/** Strict schema for persisted deployment state; Ignition remains the transaction journal. */
-export const VillageDeploymentManifestSchema = z.strictObject({
-  schemaVersion: z.literal(1),
-  deploymentKind: z.enum(['village', 'profile']),
-  villageSlug: z.string().min(1),
-  chainId: z.number().int().positive(),
-  configSchemaVersion: z.literal(1),
-  configHash: manifestHash,
-  sourceRevision: z.string().min(1).optional(),
-  network: z.string().min(1),
-  deploymentProfile: z.enum(['minimal-village', 'token-village', 'tokenized-stays-village', 'tdf']),
-  modules: manifestModules,
-  deploymentStart: manifestBlockReference,
-  contracts: z.record(z.string(), manifestContract),
-  compiler: z.strictObject({solidity: z.string().min(1)}),
-  openzeppelinVersion: z.string().min(1),
-  ownership: z.strictObject({
-    deployer: manifestAddress,
-    finalOwner: manifestOwner,
-    handoffInitiatedAt: z.string().min(1).optional(),
-  }),
-  apiOperator: manifestAddress,
-  roles: z.strictObject({
-    initialGrants: z.array(manifestRoleGrant),
-    apiOperatorGrants: z.array(manifestRoleGrant),
-  }),
-  handoffTransaction: manifestSafeTransaction.optional(),
-  manualActions: z.array(manifestManualAction),
-  verification: z.strictObject({attempts: z.array(z.unknown())}),
-  deploymentTool: z.strictObject({
-    name: z.literal('hardhat-ignition'),
-    deploymentId: z.string().min(1),
-    moduleIds: z.array(z.string().min(1)),
-    versions: z.record(z.string(), z.string()),
-  }),
-  status: z.enum(['complete', 'pending-handoff']),
-  productAliases: z.record(z.string(), z.string()).optional(),
-  upgradeHistory: z.array(manifestUpgrade).optional(),
-});
-
-export function parseVillageDeploymentManifest(value: unknown): VillageDeploymentManifest {
-  return VillageDeploymentManifestSchema.parse(value) as VillageDeploymentManifest;
 }
 
 const IMPLEMENTATION_SLOT = '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc';
@@ -473,75 +113,21 @@ export const ROLE_IDS = {
 } as const;
 
 const ROLE_NAMES_BY_ID = new Map(Object.entries(ROLE_IDS).map(([name, role]) => [role.toLowerCase(), name]));
-export const TDF_COMMUNITY_TOKEN_MAX_SUPPLY = 18_600n * 10n ** 18n;
-export const TDF_DYNAMIC_PRICE_SALE_CAP = 15_097_500_000_000_000_000_000n;
-export const TDF_MINIMUM_PURCHASE = 1n * 10n ** 18n;
-export const TDF_MAXIMUM_PURCHASE = 100n * 10n ** 18n;
-export const TDF_PURCHASE_GRANULARITY = 1n * 10n ** 18n;
-export const TDF_MAXIMUM_RECIPIENT_BALANCE = 915n * 10n ** 18n;
-/**
- * 5,381 TDF is the lowest historical V1 quote-vector supply and safely supports the complete
- * configured 1–100 TDF whole-token purchase range. The curve's nominal 4,109 domain is unchanged.
- */
-export const TDF_MINIMUM_OPERATING_SUPPLY = 5_381n * 10n ** 18n;
-export const TDF_DEFAULT_CLOSER_FEE_BPS = 500;
 
-const MODULE_NAMES = [
-  'communityToken',
-  'presenceToken',
-  'sweatToken',
-  'tokenizedStays',
-  'tdfTransferPolicy',
-  'citizenNft',
-  'dynamicPriceSale',
-] as const;
-/** Combines explicitly selected modules with the modules implied by a named deployment profile. */
+/** Boolean selection view derived from the canonical resolved contract set. */
 export function normalizeModules(config: VillageDeploymentConfig): NormalizedModules {
-  const modules: NormalizedModules = {
-    communityToken: false,
-    presenceToken: false,
-    sweatToken: false,
-    tokenizedStays: false,
-    tdfTransferPolicy: false,
-    citizenNft: false,
-    dynamicPriceSale: false,
-  };
-  for (const moduleName of config.modules) {
-    if (!MODULE_NAMES.includes(moduleName as (typeof MODULE_NAMES)[number])) {
-      throw new Error(`Unsupported village module '${moduleName}'`);
-    }
-    modules[moduleName as keyof NormalizedModules] = true;
-  }
-  if (config.deploymentProfile === 'token-village') {
-    modules.communityToken = true;
-    modules.citizenNft = true;
-  }
-  if (config.deploymentProfile === 'tokenized-stays-village') {
-    modules.communityToken = true;
-    modules.tokenizedStays = true;
-    modules.citizenNft = true;
-  }
-  if (config.deploymentProfile === 'tdf') {
-    for (const key of MODULE_NAMES) modules[key] = true;
-  }
-  return modules;
-}
-
-export function deploymentKind(profile: DeploymentProfile): 'village' | 'profile' {
-  return profile === 'tdf' ? 'profile' : 'village';
+  return contractSelection(config);
 }
 
 export function resolvedCloserFeeBps(config: VillageDeploymentConfig): number {
-  const configured = config.dynamicPriceSale?.closerFeeBps;
-  if (configured !== undefined) return configured;
-  if (config.deploymentProfile === 'tdf') return TDF_DEFAULT_CLOSER_FEE_BPS;
-  throw new Error('dynamicPriceSale.closerFeeBps is required outside the TDF profile');
+  if (config.dynamicPriceSale?.closerFeeBps === undefined) {
+    throw new Error('dynamicPriceSale.closerFeeBps is missing from the resolved deployment spec');
+  }
+  return config.dynamicPriceSale.closerFeeBps;
 }
 
 export function manifestPathFor(config: VillageDeploymentConfig, projectRoot: string): string {
-  return config.deploymentProfile === 'tdf'
-    ? path.join(projectRoot, 'deployments', 'profiles', 'tdf', String(config.chainId), `${config.villageSlug}.json`)
-    : path.join(projectRoot, 'deployments', 'villages', String(config.chainId), `${config.villageSlug}.json`);
+  return path.join(projectRoot, 'deployments', 'villages', String(config.chainId), `${config.villageSlug}.json`);
 }
 
 export function roleName(role: string): string {
@@ -558,7 +144,7 @@ export function deriveInitialRoleGrants(
   config: VillageDeploymentConfig,
   modules = normalizeModules(config),
 ): ResolvedRoleGrant[] {
-  // Operational roles required by selected modules are merged with explicit grants and deduplicated by role/account.
+  // Operational roles required by selected contracts are merged with explicit grants and deduplicated by role/account.
   const grants: ResolvedRoleGrant[] = [];
   const apiOperator = normalizeAddress(config.apiOperator, 'apiOperator');
   if (modules.presenceToken || modules.sweatToken) {
@@ -586,121 +172,13 @@ export function validateVillageDeploymentConfig(
   config: VillageDeploymentConfig,
   networkChainId?: number,
 ): {modules: NormalizedModules; initialRoleGrants: ResolvedRoleGrant[]} {
-  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(config.villageSlug)) {
-    throw new Error(`villageSlug '${config.villageSlug}' is not a stable lowercase deployment slug`);
-  }
+  if (config.schemaVersion !== 2) throw new Error('Deployment spec must use schemaVersion 2');
   if (networkChainId !== undefined && config.chainId !== networkChainId) {
     throw new Error(`Config chainId ${config.chainId} does not match selected network chainId ${networkChainId}`);
   }
   normalizeAddress(config.finalOwner.address, 'finalOwner.address');
   normalizeAddress(config.apiOperator, 'apiOperator');
   const modules = normalizeModules(config);
-  if (modules.tokenizedStays && !modules.communityToken) throw new Error('tokenizedStays requires communityToken');
-  if (modules.dynamicPriceSale && !modules.communityToken) {
-    throw new Error('dynamicPriceSale requires communityToken');
-  }
-  if (!modules.tdfTransferPolicy && config.tdfTransferPolicy !== undefined) {
-    throw new Error('tdfTransferPolicy configuration requires the tdfTransferPolicy module');
-  }
-  if (config.deploymentProfile === 'tdf' && !config.tdfTransferPolicy?.treasury) {
-    throw new Error('tdf requires tdfTransferPolicy.treasury');
-  }
-  if (modules.communityToken) {
-    const initialSupply = BigInt(config.communityToken?.initialSupply ?? 0);
-    if (config.communityToken?.maxSupply === undefined) {
-      throw new Error('communityToken.maxSupply is required when communityToken is selected');
-    }
-    const maxSupply = BigInt(config.communityToken.maxSupply);
-    if (initialSupply < 0n) throw new Error('communityToken.initialSupply must not be negative');
-    if (maxSupply <= 0n) throw new Error('communityToken.maxSupply must be greater than zero');
-    if (initialSupply > maxSupply) throw new Error('communityToken.initialSupply cannot exceed maxSupply');
-    if (initialSupply > 0n)
-      normalizeAddress(config.communityToken?.initialRecipient, 'communityToken.initialRecipient');
-    if (config.communityToken?.transferPolicy) {
-      normalizeAddress(config.communityToken.transferPolicy, 'communityToken.transferPolicy');
-      if (modules.tdfTransferPolicy) {
-        throw new Error('communityToken.transferPolicy cannot be set when the deployed TDFTransferPolicy is selected');
-      }
-    }
-    if (config.deploymentProfile === 'tdf' && maxSupply !== TDF_COMMUNITY_TOKEN_MAX_SUPPLY) {
-      throw new Error(`tdf requires communityToken.maxSupply ${TDF_COMMUNITY_TOKEN_MAX_SUPPLY}`);
-    }
-  }
-  if (modules.citizenNft && !config.citizenNft?.baseURI) {
-    throw new Error('citizenNft.baseURI is required when citizenNft is selected');
-  }
-  if (modules.presenceToken && config.presenceToken?.decayRatePerDay === undefined) {
-    throw new Error('presenceToken.decayRatePerDay is required when presenceToken is selected');
-  }
-  if (modules.sweatToken && config.sweatToken?.decayRatePerDay === undefined) {
-    throw new Error('sweatToken.decayRatePerDay is required when sweatToken is selected');
-  }
-  if (modules.tdfTransferPolicy) {
-    normalizeAddress(config.tdfTransferPolicy?.treasury, 'tdfTransferPolicy.treasury');
-    for (const account of config.tdfTransferPolicy?.allowedCounterparties ?? []) {
-      normalizeAddress(account, 'tdfTransferPolicy.allowedCounterparties');
-    }
-  }
-  if (modules.dynamicPriceSale) {
-    const sale = config.dynamicPriceSale;
-    if (!sale) throw new Error('dynamicPriceSale configuration is required when the module is selected');
-    normalizeAddress(sale.quoteToken, 'dynamicPriceSale.quoteToken');
-    normalizeAddress(sale.villageTreasury, 'dynamicPriceSale.villageTreasury');
-    normalizeAddress(sale.closerFeeRecipient, 'dynamicPriceSale.closerFeeRecipient');
-    const closerFeeBps = resolvedCloserFeeBps(config);
-    if (!Number.isInteger(closerFeeBps) || closerFeeBps < 0 || closerFeeBps > 10_000) {
-      throw new Error('dynamicPriceSale.closerFeeBps must be an integer from 0 through 10000');
-    }
-    if (config.deploymentProfile === 'tdf') {
-      if (sale.bondingCurve) {
-        throw new Error('tdf deploys TDFV1BondingCurve automatically; dynamicPriceSale.bondingCurve must be omitted');
-      }
-    } else {
-      normalizeAddress(sale.bondingCurve, 'dynamicPriceSale.bondingCurve');
-    }
-
-    const saleCap = BigInt(sale.saleCap);
-    const minimumPurchase = BigInt(sale.minimumPurchase);
-    const maximumPurchase = BigInt(sale.maximumPurchase);
-    const purchaseGranularity = BigInt(sale.purchaseGranularity);
-    const maximumRecipientBalance = BigInt(sale.maximumRecipientBalance);
-    const initialSupply = BigInt(config.communityToken?.initialSupply ?? 0);
-    const maxSupply = BigInt(config.communityToken!.maxSupply!);
-    if (saleCap <= 0n || saleCap > maxSupply) {
-      throw new Error(
-        'dynamicPriceSale.saleCap must be greater than zero and no greater than communityToken.maxSupply',
-      );
-    }
-    if (
-      minimumPurchase <= 0n ||
-      maximumPurchase < minimumPurchase ||
-      purchaseGranularity <= 0n ||
-      minimumPurchase % purchaseGranularity !== 0n ||
-      maximumPurchase % purchaseGranularity !== 0n ||
-      maximumRecipientBalance < minimumPurchase
-    ) {
-      throw new Error('dynamicPriceSale purchase limits are inconsistent');
-    }
-    if (initialSupply > saleCap || minimumPurchase > saleCap - initialSupply) {
-      throw new Error('dynamicPriceSale launch supply does not leave room for the minimum purchase');
-    }
-    if (config.deploymentProfile === 'tdf') {
-      if (
-        saleCap !== TDF_DYNAMIC_PRICE_SALE_CAP ||
-        minimumPurchase !== TDF_MINIMUM_PURCHASE ||
-        maximumPurchase !== TDF_MAXIMUM_PURCHASE ||
-        purchaseGranularity !== TDF_PURCHASE_GRANULARITY ||
-        maximumRecipientBalance !== TDF_MAXIMUM_RECIPIENT_BALANCE
-      ) {
-        throw new Error('tdf dynamicPriceSale limits must match the locked TDF launch configuration');
-      }
-      if (initialSupply < TDF_MINIMUM_OPERATING_SUPPLY) {
-        throw new Error(
-          `tdf initial supply must be at least ${TDF_MINIMUM_OPERATING_SUPPLY} so every configured purchase can be quoted`,
-        );
-      }
-    }
-  }
   const initialRoleGrants = deriveInitialRoleGrants(config, modules);
   if (isPolicyOnlyDeployment(modules) && initialRoleGrants.length > 0) {
     throw new Error('TDFTransferPolicy-only deployment cannot assign VillageAccess roles');
@@ -723,21 +201,17 @@ export async function deployVillage(
   const projectRoot = context.projectRoot ?? process.cwd();
   const network = await context.ethers.provider.getNetwork();
   const {modules, initialRoleGrants} = validateVillageDeploymentConfig(config, Number(network.chainId));
-  const configHash = hashDeploymentConfig(config);
-  const manifestPath = context.manifestPathOverride ?? manifestPathFor(config, context.outputRoot ?? projectRoot);
-  const existing = await readExistingManifest(manifestPath);
+  const configHash = hashResolvedDeploymentSpec(config);
+  const manifestPath = manifestPathFor(config, context.outputRoot ?? projectRoot);
+  const existing = await readExistingVillageDeploymentManifest(manifestPath);
   if (existing) {
     if (existing.configHash !== configHash) throw new Error(`Deployment manifest collision at ${manifestPath}`);
     // Reruns audit the recorded deployment against live state instead of submitting the graph again.
     const reconciled = await reconcileManifest(existing, config, context, initialRoleGrants);
-    let descriptorPath: string | undefined;
     if (context.writeManifest !== false) {
       await writeVillageDeploymentManifest(manifestPath, reconciled);
-      if (reconciled.status === 'complete' && !context.deploymentIdOverride) {
-        descriptorPath = await writeConsumerDescriptor(reconciled, context.outputRoot ?? projectRoot);
-      }
     }
-    return {manifest: reconciled, manifestPath, descriptorPath};
+    return {manifest: reconciled, manifestPath};
   }
 
   const [deployer] = await context.ethers.getSigners();
@@ -768,59 +242,40 @@ export async function deployVillage(
   if (ownerActions.length > 0) throw new Error('Deployer owner actions did not reach their expected state');
   await verifyCompleteWiring(context, contracts, config);
 
-  const manualActions =
+  const pendingOwnerActions =
     finalOwner === deployerAddress
       ? []
       : await initiateOwnershipHandoff(contracts, deployer, deployerAddress, finalOwner, context);
-  const status: VillageDeploymentManifest['status'] = manualActions.length === 0 ? 'complete' : 'pending-handoff';
+  const status: VillageDeploymentManifest['status'] = pendingOwnerActions.length === 0 ? 'complete' : 'pending-handoff';
   if (status === 'complete') await verifyFinalAuthority(contracts, finalOwner, context);
 
   const manifest: VillageDeploymentManifest = {
-    schemaVersion: 1,
-    deploymentKind: deploymentKind(config.deploymentProfile),
+    schemaVersion: 2,
     villageSlug: config.villageSlug,
     chainId: config.chainId,
-    configSchemaVersion: 1,
     configHash,
     sourceRevision: process.env.GITHUB_SHA ?? process.env.SOURCE_REVISION,
     network: context.networkName,
-    deploymentProfile: config.deploymentProfile,
-    modules,
+    preset: config.preset,
+    resolvedContracts: config.contracts,
     deploymentStart: deployed.deploymentStart,
     contracts,
-    compiler: {solidity: '0.8.35'},
-    openzeppelinVersion: await readOpenZeppelinVersion(projectRoot),
     ownership: {
       deployer: deployerAddress,
       finalOwner: {...config.finalOwner, address: finalOwner},
-      handoffInitiatedAt: manualActions.length > 0 ? new Date().toISOString() : undefined,
+      handoffInitiatedAt: pendingOwnerActions.length > 0 ? new Date().toISOString() : undefined,
     },
-    apiOperator: normalizeAddress(config.apiOperator, 'apiOperator'),
-    roles: {
-      initialGrants: initialRoleGrants,
-      apiOperatorGrants: initialRoleGrants.filter(
-        ({account}) => account === normalizeAddress(config.apiOperator, 'apiOperator'),
-      ),
-    },
-    manualActions,
-    verification: {attempts: []},
-    deploymentTool: {
-      name: 'hardhat-ignition',
+    pendingOwnerActions,
+    graph: {
+      id: graphIdForSpec(config),
       deploymentId: deployed.deploymentId,
-      moduleIds: deployed.moduleIds,
-      versions: await readPackageVersions(projectRoot),
     },
     status,
-    productAliases: modules.sweatToken ? {VillageSweatToken: 'ContributionToken'} : undefined,
   };
-  let descriptorPath: string | undefined;
   if (context.writeManifest !== false) {
     await writeVillageDeploymentManifest(manifestPath, manifest);
-    if (manifest.status === 'complete' && !context.deploymentIdOverride) {
-      descriptorPath = await writeConsumerDescriptor(manifest, context.outputRoot ?? projectRoot);
-    }
   }
-  return {manifest, manifestPath, descriptorPath};
+  return {manifest, manifestPath};
 }
 
 export async function reconcileOwnershipHandoff(
@@ -831,10 +286,12 @@ export async function reconcileOwnershipHandoff(
   await verifyExpectedHandoffState(reconciled, context);
   const incomplete = await pendingOwnershipHandoffActions(reconciled, context);
   if (incomplete.length > 0) {
+    reconciled.pendingOwnerActions = incomplete;
     reconciled.status = 'pending-handoff';
     return reconciled;
   }
   await verifyFinalAuthority(reconciled.contracts, reconciled.ownership.finalOwner.address, context);
+  reconciled.pendingOwnerActions = [];
   reconciled.status = 'complete';
   return reconciled;
 }
@@ -844,7 +301,7 @@ export async function pendingOwnershipHandoffActions(
   context: VillageDeploymentContext,
 ): Promise<ManualAction[]> {
   const incomplete: ManualAction[] = [];
-  for (const action of manifest.manualActions) {
+  for (const action of manifest.pendingOwnerActions) {
     if (!(await isHandoffActionComplete(action, context))) incomplete.push(action);
   }
   return incomplete;
@@ -867,19 +324,25 @@ async function reconcileManifest(
     const implementationAddress = currentImplementationAddress(record);
     if (implementationAddress) {
       await verifyProxyImplementationSlot(context, record.address, implementationAddress);
+      const implementationCode = await context.ethers.provider.getCode(implementationAddress);
+      if (implementationCode === '0x') throw new Error(`${name} implementation has no runtime code`);
+      const implementationHash = keccak256(implementationCode);
+      if (record.implementation?.runtimeCodeHash && record.implementation.runtimeCodeHash !== implementationHash) {
+        throw new Error(`${name} implementation runtime code hash changed`);
+      }
+      record.implementation!.runtimeCodeHash = implementationHash;
     }
   }
   await verifyRoles(context, reconciled.contracts, reconciled.ownership.deployer, initialRoleGrants, true);
   await verifyCompleteWiring(context, reconciled.contracts, config);
   const ownership = await reconcileOwnershipHandoff(reconciled, context);
-  reconciled.status = ownership.status;
-  reconciled.handoffTransaction = ownership.handoffTransaction;
-  return reconciled;
+  return ownership;
 }
 
 /**
  * Builds the ordered policy configuration that depends on addresses resolved after proxy initialization.
- * TokenizedStays is always included as an operational counterparty so deposits and withdrawals work while transfers are restricted.
+ * When selected, TokenizedStays is included as an operational counterparty so deposits and withdrawals work while
+ * transfers are restricted.
  */
 function buildDeploymentOwnerActions(
   config: VillageDeploymentConfig,
@@ -1389,63 +852,8 @@ function normalizeAddress(value: unknown, field: string): string {
   return address;
 }
 
-export function currentContractRevision(contract: ManifestContract): ContractRevision {
-  const revision = contract.revisions.at(-1);
-  if (!revision) throw new Error(`Manifest contract ${contract.name} has no ABI revision`);
-  return revision;
-}
-
 export function currentImplementationAddress(contract: ManifestContract): string | undefined {
-  return currentContractRevision(contract).implementationAddress;
-}
-
-export function createInitialContractRevision(
-  abi: unknown[],
-  implementationAddress: string | undefined,
-  deploymentStart: BlockReference,
-): ContractRevision {
-  return {
-    implementationAddress,
-    abi,
-    abiHash: hashContractAbi(abi),
-    effectiveFrom: {kind: 'deployment', block: deploymentStart},
-  };
-}
-
-export function hashContractAbi(abi: unknown[]): string {
-  return keccak256(toUtf8Bytes(canonicalJsonStringify(abi)));
-}
-
-/** Hashes a canonical representation so object key order cannot change deployment identity. */
-function hashDeploymentConfig(config: VillageDeploymentConfig): string {
-  return keccak256(toUtf8Bytes(canonicalJsonStringify(config)));
-}
-
-async function readExistingManifest(manifestPath: string): Promise<VillageDeploymentManifest | undefined> {
-  try {
-    return parseVillageDeploymentManifest(JSON.parse(await readFile(manifestPath, 'utf8')));
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
-    throw error;
-  }
-}
-
-export async function readVillageDeploymentManifest(manifestPath: string): Promise<VillageDeploymentManifest> {
-  const manifest = await readExistingManifest(manifestPath);
-  if (!manifest) throw new Error(`Deployment manifest does not exist at ${manifestPath}`);
-  return manifest;
-}
-
-export async function writeVillageDeploymentManifest(
-  manifestPath: string,
-  manifest: VillageDeploymentManifest,
-): Promise<void> {
-  const validated = parseVillageDeploymentManifest(manifest);
-  await mkdir(path.dirname(manifestPath), {recursive: true});
-  // A same-directory rename avoids exposing partially written JSON to readers.
-  const temporaryPath = `${manifestPath}.tmp`;
-  await writeFile(temporaryPath, `${JSON.stringify(validated, null, 2)}\n`);
-  await rename(temporaryPath, manifestPath);
+  return contract.implementation?.address;
 }
 
 /** Captures runtime bytecode hashes for canonical proxy addresses and their implementations separately. */
@@ -1455,33 +863,10 @@ async function addCodeProvenance(
 ): Promise<void> {
   for (const record of Object.values(contracts)) {
     record.runtimeCodeHash = keccak256(await context.ethers.provider.getCode(record.address));
-    const revision = currentContractRevision(record);
-    if (revision.implementationAddress) {
-      revision.implementationRuntimeCodeHash = keccak256(
-        await context.ethers.provider.getCode(revision.implementationAddress),
+    if (record.implementation) {
+      record.implementation.runtimeCodeHash = keccak256(
+        await context.ethers.provider.getCode(record.implementation.address),
       );
     }
   }
-}
-
-async function readOpenZeppelinVersion(projectRoot: string): Promise<string> {
-  const packageJson = JSON.parse(await readFile(path.join(projectRoot, 'package.json'), 'utf8'));
-  return (
-    packageJson.devDependencies?.['@openzeppelin/contracts'] ??
-    packageJson.dependencies?.['@openzeppelin/contracts'] ??
-    'unknown'
-  );
-}
-
-async function readPackageVersions(projectRoot: string): Promise<Record<string, string>> {
-  const packageJson = JSON.parse(await readFile(path.join(projectRoot, 'package.json'), 'utf8'));
-  const all = {...packageJson.dependencies, ...packageJson.devDependencies};
-  return {
-    hardhat: all.hardhat ?? 'unknown',
-    hardhatIgnition: all['@nomicfoundation/hardhat-ignition'] ?? 'unknown',
-    openzeppelinContracts: all['@openzeppelin/contracts'] ?? 'unknown',
-    openzeppelinUpgrades: all['@openzeppelin/hardhat-upgrades'] ?? 'unknown',
-    safeProtocolKit: all['@safe-global/protocol-kit'] ?? 'unknown',
-    safeApiKit: all['@safe-global/api-kit'] ?? 'unknown',
-  };
 }

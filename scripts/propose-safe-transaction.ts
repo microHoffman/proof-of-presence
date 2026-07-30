@@ -7,7 +7,6 @@ interface Args {
   network?: string;
   txServiceUrl?: string;
   origin?: string;
-  upgrade?: string;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -18,7 +17,6 @@ function parseArgs(argv: string[]): Args {
     else if (arg === '--network') args.network = argv[++i];
     else if (arg === '--tx-service-url') args.txServiceUrl = argv[++i];
     else if (arg === '--origin') args.origin = argv[++i];
-    else if (arg === '--upgrade') args.upgrade = argv[++i];
     else if (arg === '--help' || arg === '-h') return args;
     else throw new Error(`Unknown argument '${arg}'`);
   }
@@ -28,9 +26,7 @@ function parseArgs(argv: string[]): Args {
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   if (!args.manifest || !args.network) {
-    console.log(
-      'Usage: npm run owner:submit -- --manifest <manifest.json> --network <network> [--upgrade contract:version]',
-    );
+    console.log('Usage: yarn owner:submit -- --manifest <manifest.json> --network <network>');
     if (!process.argv.includes('--help') && !process.argv.includes('-h'))
       throw new Error('--manifest and --network are required');
     return;
@@ -48,7 +44,7 @@ async function main(): Promise<void> {
         }
       : undefined;
     await ownerSubmitCommand(
-      {manifestPath: args.manifest, upgrade: args.upgrade, safeOptions},
+      {manifestPath: args.manifest, safeOptions},
       {ethers: connection.ethers, networkName: connection.networkName},
     );
   } finally {

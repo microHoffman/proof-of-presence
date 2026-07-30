@@ -3,7 +3,7 @@ import {deployVillageUupsProxy} from './shared.js';
 
 export const VILLAGE_ACCESS_MODULE_ID = 'VillageAccessModule';
 
-/** Root authority shared by all village contract Modules. */
+/** Deploys the shared role authority when selected directly or required by another contract. */
 export default buildModule(VILLAGE_ACCESS_MODULE_ID, (m) => {
   const initialDefaultAdmin = m.getParameter<string>('initialDefaultAdmin');
   const initialRoleGrants = m.getParameter<Array<{role: string; account: string}>>('initialRoleGrants', []);
