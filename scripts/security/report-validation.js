@@ -57,6 +57,22 @@ export function unexpectedErcFindingTypes(report, acceptedFindingTypes) {
     .filter((findingType) => !acceptedFindingTypes.includes(findingType));
 }
 
+export function provedSmtPropertyIds(output) {
+  const safeMessage = /Info: (?:CHC|BMC): Assertion violation check is safe!/;
+  const propertyPattern = /\/\/ SMT:\s*([A-Z0-9-]+)/g;
+  const ids = [];
+  for (const block of output.split(/\r?\n[ \t]*\r?\n/)) {
+    if (!safeMessage.test(block)) continue;
+    const blockIds = [...block.matchAll(propertyPattern)].map((match) => match[1]);
+    if (blockIds.length !== 1) {
+      throw new Error(`Each proved-safe SMT diagnostic must identify exactly one property:\n${block}`);
+    }
+    ids.push(blockIds[0]);
+  }
+  if (new Set(ids).size !== ids.length) throw new Error('SMTChecker reported a property more than once.');
+  return ids;
+}
+
 export function loadStorageLayout(artifact, buildInfoRoot = 'artifacts/build-info') {
   if (!artifact.buildInfoId) {
     throw new Error(

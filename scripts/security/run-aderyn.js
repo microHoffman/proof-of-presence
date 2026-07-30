@@ -4,7 +4,7 @@ import {homedir} from 'node:os';
 import path from 'node:path';
 import console from 'node:console';
 import process from 'node:process';
-import {COMPILER_SETTINGS, SOLC_FULL_VERSION, SOLC_VERSION, ensureReportDirectory, run} from './shared.js';
+import {assertSolcVersion, COMPILER_SETTINGS, SOLC_VERSION, ensureReportDirectory, run} from './shared.js';
 
 const EVM_VERSION = COMPILER_SETTINGS.evmVersion;
 const ADERYN_PACKAGE = '@cyfrin/aderyn@0.6.8';
@@ -27,21 +27,13 @@ function captured(command, args, options = {}) {
   return {result, output: `${result.stdout ?? ''}${result.stderr ?? ''}`};
 }
 
-function assertSolcVersion(executable, source) {
-  const {result, output} = captured(executable, ['--version']);
-  if (result.status !== 0 || !output.includes(`Version: ${SOLC_FULL_VERSION}`)) {
-    throw new Error(`Expected ${source} to be solc ${SOLC_FULL_VERSION}, received:\n${output}`);
-  }
-  return output;
-}
-
 const miseSolc = captured('mise', ['which', 'solc']);
 if (miseSolc.result.status !== 0 || !miseSolc.result.stdout.trim()) {
   throw new Error(`Mise could not resolve pinned solc ${SOLC_VERSION}. Run \`mise install\`.\n${miseSolc.output}`);
 }
 
 const solcExecutable = realpathSync(miseSolc.result.stdout.trim());
-const solcVersion = assertSolcVersion(solcExecutable, 'the Mise-pinned compiler');
+const solcVersion = assertSolcVersion('the Mise-pinned compiler', solcExecutable);
 writeFileSync(solcVersionPath, solcVersion);
 process.stdout.write(solcVersion);
 
@@ -57,7 +49,7 @@ try {
 }
 
 if (aderynSolcExists) {
-  assertSolcVersion(aderynSolc, `the existing Aderyn compiler at ${aderynSolc}`);
+  assertSolcVersion(`the existing Aderyn compiler at ${aderynSolc}`, aderynSolc);
 } else {
   symlinkSync(solcExecutable, aderynSolc, 'file');
 }

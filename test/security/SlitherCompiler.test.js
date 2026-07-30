@@ -5,7 +5,7 @@ import path from 'node:path';
 import process from 'node:process';
 import {expect} from 'chai';
 import {describe, it} from 'mocha';
-import {slitherBuildArgs, slitherCompileArgs} from '../../scripts/security/shared.js';
+import {assertSolcVersion, slitherBuildArgs, slitherCompileArgs} from '../../scripts/security/shared.js';
 
 describe('Slither compiler configuration', function () {
   it('passes the absolute Mise-pinned solc executable to every Slither command', function () {
@@ -39,6 +39,24 @@ describe('Slither compiler configuration', function () {
     } finally {
       if (previousOverride === undefined) delete process.env.SLITHER_SOLC;
       else process.env.SLITHER_SOLC = previousOverride;
+      rmSync(directory, {recursive: true, force: true});
+    }
+  });
+
+  it('rejects ambiguous or suffixed compiler version headers', function () {
+    const directory = mkdtempSync(path.join(tmpdir(), 'slither-solc-header-'));
+    const fakeSolc = path.join(directory, 'solc');
+    try {
+      writeFileSync(fakeSolc, '#!/bin/sh\nprintf "Version: 0.8.35+commit.47b9dedd.wrapper\\n"\n');
+      chmodSync(fakeSolc, 0o755);
+      expect(() => assertSolcVersion('fake compiler', fakeSolc)).to.throw('Expected fake compiler');
+
+      writeFileSync(
+        fakeSolc,
+        '#!/bin/sh\nprintf "Version: 0.8.35+commit.47b9dedd\\nVersion: 0.8.35+commit.47b9dedd\\n"\n',
+      );
+      expect(() => assertSolcVersion('fake compiler', fakeSolc)).to.throw('Expected fake compiler');
+    } finally {
       rmSync(directory, {recursive: true, force: true});
     }
   });

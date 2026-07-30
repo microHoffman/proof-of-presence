@@ -44,6 +44,26 @@ describe('Deployment CLI validation', function () {
     });
   }
 
+  for (const [script, option] of [
+    ['scripts/check-safe-transaction.ts', '--tx-service-url'],
+    ['scripts/propose-safe-transaction.ts', '--origin'],
+    ['scripts/prepare-upgrade.ts', '--call-args'],
+    ['scripts/submit-upgrade.ts', '--origin'],
+    ['scripts/check-upgrade.ts', '--tx-service-url'],
+  ] as const) {
+    it(`rejects a missing value for ${option} in ${script}`, async function () {
+      const message = await rejectionMessage(runWorker(script, [option]));
+      expect(message).to.include(`${option} requires a value`);
+    });
+  }
+
+  it('does not consume another option as a CLI value', async function () {
+    const message = await rejectionMessage(
+      runWorker('scripts/submit-upgrade.ts', ['--manifest', '--upgrade', 'VillageAccess:v2']),
+    );
+    expect(message).to.include('--manifest requires a value');
+  });
+
   it('rejects legacy profile/module configuration before connecting to a network', async function () {
     const root = await mkdtemp(path.join(tmpdir(), 'legacy-deployment-config-'));
     const configPath = path.join(root, 'config.json');

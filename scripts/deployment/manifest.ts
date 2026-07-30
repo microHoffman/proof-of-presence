@@ -58,7 +58,7 @@ export interface ManifestUpgrade {
   graphId: string;
   previousImplementation: string;
   newImplementation: string;
-  status: 'prepared' | 'executed' | 'superseded';
+  status: 'prepared' | 'executed';
   validatedAt: string;
   callData: string;
   specHash: string;
@@ -138,7 +138,7 @@ const manifestSafeTransaction = z.strictObject({
     to: manifestAddress,
     value: z.string(),
     data: manifestHex,
-    operation: z.number().int(),
+    operation: z.literal(0),
     safeTxGas: z.string(),
     baseGas: z.string(),
     gasPrice: z.string(),
@@ -168,7 +168,7 @@ const manifestUpgrade = z.strictObject({
   graphId: z.string().min(1),
   previousImplementation: manifestAddress,
   newImplementation: manifestAddress,
-  status: z.enum(['prepared', 'executed', 'superseded']),
+  status: z.enum(['prepared', 'executed']),
   validatedAt: z.string().min(1),
   callData: manifestHex,
   specHash: manifestHash,

@@ -4,7 +4,7 @@ import path from 'node:path';
 import {expect} from 'chai';
 import hre from 'hardhat';
 import {upgrades as createUpgradesApi} from '@openzeppelin/hardhat-upgrades';
-import {MaxUint256} from 'ethers';
+import {MaxUint256, ZeroAddress, ZeroHash} from 'ethers';
 import {connection, ethers} from '../hardhat.js';
 import {parseTdfDeploymentConfig, parseVillageDeploymentConfig} from '../../scripts/deployment/config.js';
 import {deployVillage, parseVillageDeploymentManifest, ROLE_IDS} from '../../scripts/deployment/village.js';
@@ -68,6 +68,27 @@ describe('Village deployment interface', function () {
     );
     expect(() => parseVillageDeploymentManifest({...persisted, schemaVersion: 1})).to.throw();
     expect(() => parseVillageDeploymentManifest({...persisted, unexpected: true})).to.throw('Unrecognized key');
+    expect(() =>
+      parseVillageDeploymentManifest({
+        ...persisted,
+        handoffTransaction: {
+          safeAddress: deployer.address,
+          safeTxHash: ZeroHash,
+          data: {
+            to: deployer.address,
+            value: '0',
+            data: '0x',
+            operation: 1,
+            safeTxGas: '0',
+            baseGas: '0',
+            gasPrice: '0',
+            gasToken: ZeroAddress,
+            refundReceiver: ZeroAddress,
+            nonce: 0,
+          },
+        },
+      }),
+    ).to.throw();
   });
 
   it('deploys an explicit contract with dependencies auto-added and configured roles', async function () {

@@ -40,13 +40,19 @@ export function resolveSlitherSolc() {
   const resolvedSolc = executableOnPath(configuredSolc);
   if (!resolvedSolc) throw new Error(`Could not resolve ${source} executable: ${configuredSolc}`);
   const executable = realpathSync(resolvedSolc);
+  assertSolcVersion(source, executable);
+  return executable;
+}
+
+export function assertSolcVersion(source, executable) {
   const version = run(executable, ['--version'], {capture: true});
   const output = `${version.stdout ?? ''}${version.stderr ?? ''}`;
-  if (version.status !== 0 || !output.includes(`Version: ${SOLC_FULL_VERSION}`)) {
+  const headers = [...output.matchAll(/^Version:[ \t]*(\S+)[ \t]*\r?$/gm)].map((match) => match[1]);
+  const compilerVersion = headers[0]?.replace(/\.(?:Linux\.g\+\+|Darwin\.appleclang|Windows\.msvc)$/, '');
+  if (version.status !== 0 || headers.length !== 1 || compilerVersion !== SOLC_FULL_VERSION) {
     throw new Error(`Expected ${source} to be solc ${SOLC_FULL_VERSION}, received:\n${output}`);
   }
-
-  return executable;
+  return output;
 }
 
 export function slitherBuildArgs() {

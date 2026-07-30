@@ -93,6 +93,30 @@ describe('Upgrade manifest reconciliation', function () {
     expect(upgrade.status).to.equal('prepared');
     expect(contracts.CommunityToken.implementation?.address).to.equal(previous.address);
   });
+
+  it('rejects unsupported upgrade statuses before reading on-chain state', async function () {
+    const [, previous, next, proxy] = await ethers.getSigners();
+    const contracts = contractRecords(proxy.address, previous.address);
+    const upgrade = {...manifestUpgrade(previous.address, next.address, ZeroHash), status: 'superseded'} as any;
+
+    let failure: Error | undefined;
+    try {
+      await reconcileExecutedUpgrade(contracts, upgrade, {
+        getStorage: async () => {
+          throw new Error('storage must not be read');
+        },
+        getCode: async () => {
+          throw new Error('code must not be read');
+        },
+        getLogs: async () => [],
+      });
+    } catch (error) {
+      failure = error as Error;
+    }
+
+    expect(failure?.message).to.include("unsupported status 'superseded'");
+    expect(contracts.CommunityToken.implementation?.address).to.equal(previous.address);
+  });
 });
 
 function contractRecords(proxy: string, implementation: string): Record<string, ManifestContract> {

@@ -33,6 +33,9 @@ export async function reconcileExecutedUpgrade(
   upgrade: ManifestUpgrade,
   provider: UpgradeProvider,
 ): Promise<UpgradeReconciliationResult> {
+  if (upgrade.status !== 'prepared' && upgrade.status !== 'executed') {
+    throw new Error(`${upgrade.contractName} upgrade has unsupported status '${String(upgrade.status)}'`);
+  }
   const record = contracts[upgrade.contractName];
   if (!record?.implementation) {
     throw new Error(`Manifest has no UUPS deployment for ${upgrade.contractName}`);
@@ -71,7 +74,7 @@ export async function reconcileExecutedUpgrade(
     );
   }
 
-  if (upgrade.status !== 'executed') {
+  if (upgrade.status === 'prepared') {
     const executedAt = await findUpgradeEvent(record.address, expectedImplementation, upgrade, provider);
     record.artifact = upgrade.nextArtifact;
     record.implementation = {address: liveImplementation, runtimeCodeHash: implementationCodeHash};

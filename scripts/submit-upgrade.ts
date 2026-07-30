@@ -1,5 +1,6 @@
 #!/usr/bin/env tsx
 import hre from 'hardhat';
+import {requiredValue} from './deployment/cli-args.js';
 import {upgradeSubmitCommand} from './deployment/commands/upgrade-submit.js';
 import {readVillageDeploymentManifest} from './deployment/village.js';
 
@@ -15,11 +16,11 @@ function parseArgs(argv: string[]): Args {
   const args: Args = {};
   for (let index = 0; index < argv.length; index++) {
     const argument = argv[index];
-    if (argument === '--manifest') args.manifest = argv[++index];
-    else if (argument === '--upgrade') args.upgrade = argv[++index];
-    else if (argument === '--network') args.network = argv[++index];
-    else if (argument === '--tx-service-url') args.txServiceUrl = argv[++index];
-    else if (argument === '--origin') args.origin = argv[++index];
+    if (argument === '--manifest') args.manifest = requiredValue(argv, ++index, argument);
+    else if (argument === '--upgrade') args.upgrade = requiredValue(argv, ++index, argument);
+    else if (argument === '--network') args.network = requiredValue(argv, ++index, argument);
+    else if (argument === '--tx-service-url') args.txServiceUrl = requiredValue(argv, ++index, argument);
+    else if (argument === '--origin') args.origin = requiredValue(argv, ++index, argument);
     else if (argument === '--help' || argument === '-h') return args;
     else throw new Error(`Unknown argument '${argument}'`);
   }

@@ -7,6 +7,7 @@ import {
   baselineContractsMissingFromCurrent,
   loadStorageLayout,
   parseOsvReport,
+  provedSmtPropertyIds,
   unexpectedErcFindingTypes,
 } from './report-validation.js';
 
@@ -34,6 +35,23 @@ test('ERC reports reject unsuccessful, malformed, and unexpected findings', () =
     results: {'erc-conformance': {accepted: [{}], unexpected: [{}]}},
   };
   assert.deepEqual(unexpectedErcFindingTypes(report, ['accepted']), ['unexpected']);
+});
+
+test('SMT reports identify every proved property exactly once', () => {
+  const diagnostic = (id) => `Info: CHC: Assertion violation check is safe!
+  --> security/smt/Example.sol:1:1:
+   |
+1 | assert(true); // SMT: ${id}
+   | ^^^^^^^^^^^^`;
+  assert.deepEqual(provedSmtPropertyIds(`${diagnostic('FIRST')}\n\n${diagnostic('SECOND')}`), ['FIRST', 'SECOND']);
+  assert.throws(
+    () => provedSmtPropertyIds('Info: CHC: Assertion violation check is safe!\n --> Example.sol:1:1:'),
+    /exactly one property/,
+  );
+  assert.throws(
+    () => provedSmtPropertyIds(`${diagnostic('DUPLICATE')}\n\n${diagnostic('DUPLICATE')}`),
+    /more than once/,
+  );
 });
 
 test('storage layout resolution fails closed and accepts both Hardhat source-key forms', () => {

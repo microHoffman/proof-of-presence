@@ -1,6 +1,6 @@
 import path from 'node:path';
 import {getAddress} from 'ethers';
-import {proposeSafeOwnerActions, type SafeProposalOptions} from '../safe-service.js';
+import {prepareSafeOwnerActions, proposeSafeOwnerActions, type SafeProposalOptions} from '../safe-service.js';
 import {reconcileExecutedUpgrade} from '../upgrades.js';
 import {readUpgradeAuthority} from '../uups-contracts.js';
 import {
@@ -9,6 +9,7 @@ import {
   type ManifestUpgrade,
   type VillageDeploymentManifest,
 } from '../village.js';
+import {validateConnectedManifest} from './validation.js';
 
 export interface UpgradeSubmitOptions {
   manifestPath: string;
@@ -19,6 +20,8 @@ export interface UpgradeSubmitOptions {
 export interface UpgradeSubmitContext {
   ethers: any;
   networkName: string;
+  prepareSafeTransaction?: typeof prepareSafeOwnerActions;
+  proposeSafeTransaction?: typeof proposeSafeOwnerActions;
 }
 
 export async function upgradeSubmitCommand(
@@ -38,8 +41,29 @@ export async function upgradeSubmitCommand(
 
   if (upgrade.ownerTransaction) {
     if (!options.safeOptions) throw new Error('SAFE_PROPOSER_PRIVATE_KEY is required for a Safe-owned upgrade');
-    const proposal = await proposeSafeOwnerActions(manifest.chainId, upgrade.ownerTransaction, options.safeOptions);
-    console.log(`Safe transaction ${proposal.status}: ${upgrade.ownerTransaction.safeTxHash}`);
+    const prepare = context.prepareSafeTransaction ?? prepareSafeOwnerActions;
+    const propose = context.proposeSafeTransaction ?? proposeSafeOwnerActions;
+    let prepared = upgrade.ownerTransaction;
+    let proposal = await propose(manifest.chainId, prepared, options.safeOptions);
+    if (proposal.status === 'failed') {
+      const failedHash = prepared.safeTxHash;
+      const replacement = await prepare(
+        {type: 'safe', address: prepared.safeAddress},
+        [upgrade.ownerAction],
+        options.safeOptions.provider,
+      );
+      if (!replacement) throw new Error(`${upgrade.contractName} upgrade has no Safe owner action`);
+      prepared = replacement;
+      if (prepared.safeTxHash.toLowerCase() === failedHash.toLowerCase()) {
+        throw new Error('Failed Safe upgrade cannot be retried until the Safe nonce advances');
+      }
+      proposal = await propose(manifest.chainId, prepared, options.safeOptions);
+      if (proposal.status === 'failed') {
+        throw new Error(`Replacement Safe upgrade transaction ${prepared.safeTxHash} has already failed`);
+      }
+    }
+    upgrade.ownerTransaction = proposal.transaction;
+    console.log(`Safe transaction ${proposal.status}: ${proposal.transaction.safeTxHash}`);
   } else {
     await submitEoaUpgrade(upgrade, manifest, context.ethers);
   }
@@ -76,14 +100,4 @@ function selectUpgrade(manifest: VillageDeploymentManifest, selector: string): M
   if (!upgrade) throw new Error(`Manifest has no upgrade '${selector}'`);
   if (upgrade.status !== 'prepared') throw new Error(`Upgrade '${selector}' is not prepared`);
   return upgrade;
-}
-
-async function validateConnectedManifest(
-  manifest: VillageDeploymentManifest,
-  context: UpgradeSubmitContext,
-): Promise<void> {
-  if (context.networkName !== manifest.network)
-    throw new Error(`Network '${context.networkName}' does not match manifest`);
-  const chainId = Number((await context.ethers.provider.getNetwork()).chainId);
-  if (chainId !== manifest.chainId) throw new Error(`Connected chain ${chainId} does not match manifest`);
 }

@@ -5,6 +5,7 @@ import {
   writeVillageDeploymentManifest,
   type VillageDeploymentManifest,
 } from '../village.js';
+import {validateConnectedManifest} from './validation.js';
 
 export interface OwnerStatusOptions {
   manifestPath: string;
@@ -23,10 +24,7 @@ export async function ownerStatusCommand(
 ): Promise<VillageDeploymentManifest> {
   const manifestPath = path.resolve(options.manifestPath);
   const manifest = await readVillageDeploymentManifest(manifestPath);
-  const chainId = Number((await context.ethers.provider.getNetwork()).chainId);
-  if (chainId !== manifest.chainId) {
-    throw new Error(`Connected chain ${chainId} does not match manifest chain ${manifest.chainId}`);
-  }
+  await validateConnectedManifest(manifest, context);
   const safeServiceOptions =
     manifest.handoffTransaction && (options.apiKey || options.txServiceUrl)
       ? {apiKey: options.apiKey, txServiceUrl: options.txServiceUrl}

@@ -117,7 +117,8 @@ yarn owner:status -- --manifest <manifest.json> --network <network>
 ```
 
 EOA and Safe final owners are supported. Safe service data is advisory and is printed, not persisted; live contract
-authority determines completion.
+authority determines completion. If a Safe transaction executes unsuccessfully, rerun the submit command to prepare
+and propose a replacement using the Safe's current nonce.
 
 ## Verification
 
@@ -140,4 +141,5 @@ yarn upgrade:status -- --manifest <manifest.json> --upgrade <name>:<version> [--
 
 Preparation validates storage/UUPS compatibility, deploys the implementation through Ignition, hashes its bytecode,
 simulates `upgradeToAndCall` from live authority, and records a Safe or EOA action. Execution is accepted only after
-the ERC-1967 slot, implementation code hash, and exact `Upgraded` event reconcile.
+the ERC-1967 slot, implementation code hash, and exact `Upgraded` event reconcile. A failed Safe proposal is reported
+by the status command and replaced by the next submit command.

@@ -64,7 +64,7 @@ export interface SafeServiceOptions {
 }
 
 export interface SafeProposalResult {
-  status: 'submitted' | 'already-submitted';
+  status: 'submitted' | 'already-submitted' | 'failed';
   transaction: PreparedSafeTransaction;
 }
 
@@ -122,6 +122,9 @@ export async function proposeSafeOwnerActions(
     // Looking up the prepared hash first makes repeated proposal commands idempotent.
     const existing = await apiKit.getTransaction(prepared.safeTxHash);
     validateServiceTransaction(prepared, existing);
+    if (existing.isExecuted && existing.isSuccessful === false) {
+      return {status: 'failed', transaction: prepared};
+    }
     return {status: 'already-submitted', transaction: prepared};
   } catch (error) {
     if (!(error instanceof HttpError) || error.statusCode !== 404) throw error;

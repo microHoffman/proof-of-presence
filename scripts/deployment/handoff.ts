@@ -42,10 +42,22 @@ export async function submitOwnershipHandoff(
   if (owner.type === 'safe') {
     if (!safeOptions) throw new Error('Safe proposal options are required for a Safe handoff');
     const prepare = context.prepareSafeTransaction ?? prepareSafeOwnerActions;
-    const prepared = reconciled.handoffTransaction ?? (await prepare(owner, actions, safeOptions.provider));
+    let prepared = reconciled.handoffTransaction ?? (await prepare(owner, actions, safeOptions.provider));
     if (!prepared) throw new Error('Deployment has no pending ownership handoff actions');
     const propose = context.proposeSafeTransaction ?? proposeSafeOwnerActions;
-    const proposal = await propose(reconciled.chainId, prepared, safeOptions);
+    let proposal = await propose(reconciled.chainId, prepared, safeOptions);
+    if (proposal.status === 'failed') {
+      const failedHash = prepared.safeTxHash;
+      prepared = await prepare(owner, actions, safeOptions.provider);
+      if (!prepared) throw new Error('Deployment has no pending ownership handoff actions');
+      if (prepared.safeTxHash.toLowerCase() === failedHash.toLowerCase()) {
+        throw new Error('Failed Safe handoff cannot be retried until the Safe nonce advances');
+      }
+      proposal = await propose(reconciled.chainId, prepared, safeOptions);
+      if (proposal.status === 'failed') {
+        throw new Error(`Replacement Safe handoff transaction ${prepared.safeTxHash} has already failed`);
+      }
+    }
     console.log(`Safe transaction ${proposal.status}: ${prepared.safeTxHash}`);
     return {
       ...reconciled,
@@ -81,9 +93,12 @@ export async function refreshOwnershipHandoff(
   context: VillageDeploymentContext,
   safeOptions?: SafeServiceOptions,
 ): Promise<VillageDeploymentManifest> {
+  let current = manifest;
   if (manifest.handoffTransaction && safeOptions) {
-    const status = await refreshSafeOwnerActionsStatus(manifest.chainId, manifest.handoffTransaction, safeOptions);
+    const refresh = context.refreshSafeTransaction ?? refreshSafeOwnerActionsStatus;
+    const status = await refresh(manifest.chainId, manifest.handoffTransaction, safeOptions);
     console.log(`Safe transaction ${status.status}: ${manifest.handoffTransaction.safeTxHash}`);
+    if (status.status === 'failed') current = {...manifest, handoffTransaction: undefined};
   }
-  return reconcileOwnershipHandoff(manifest, context);
+  return reconcileOwnershipHandoff(current, context);
 }

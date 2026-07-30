@@ -3,7 +3,8 @@ import {existsSync, readFileSync, realpathSync, writeFileSync} from 'node:fs';
 import path from 'node:path';
 import console from 'node:console';
 import process from 'node:process';
-import {COMPILER_SETTINGS, SOLC_FULL_VERSION, ensureReportDirectory, reportSlug, run} from './shared.js';
+import {provedSmtPropertyIds} from './report-validation.js';
+import {assertSolcVersion, COMPILER_SETTINGS, ensureReportDirectory, reportSlug, run} from './shared.js';
 
 const source = 'security/smt/TokenizedStaysSMT.sol';
 const targets = [
@@ -69,11 +70,8 @@ if (
   throw new Error('solc or Z3 resolved outside the repository-pinned Mise toolchain. Use `mise run security:smt`.');
 }
 
-const solcVersion = captured(solcExecutable, ['--version']).output;
 const z3Version = captured(z3Executable, ['--version']).output;
-if (!solcVersion.includes(`Version: ${SOLC_FULL_VERSION}`)) {
-  throw new Error(`Expected solc ${SOLC_FULL_VERSION}, received:\n${solcVersion}`);
-}
+assertSolcVersion('solc', solcExecutable);
 if (!/Z3 version 4\.15\.8/.test(z3Version)) {
   throw new Error(`Expected Z3 4.15.8, received:\n${z3Version}`);
 }
@@ -118,14 +116,20 @@ for (const target of targets) {
   writeFileSync(`${reportDirectory}/${reportName}`, output);
   process.stdout.write(output);
 
-  const proved = (output.match(/Info: (?:CHC|BMC): Assertion violation check is safe!/g) ?? []).length;
+  const provedIds = provedSmtPropertyIds(output);
+  const expectedIds = new Set(ids);
+  const missingIds = ids.filter((id) => !provedIds.includes(id));
+  const unexpectedIds = provedIds.filter((id) => !expectedIds.has(id));
   const inconclusive =
     /Assertion violation might happen here|could not be proved|analysis was not possible|not supported|solver .* (?:not available|not found)/i.test(
       output,
     );
   const counterexample = /Counterexample:|(?:CHC|BMC): Assertion violation happens here/i.test(output);
-  if (result.status !== 0 || inconclusive || counterexample || proved !== ids.length) {
-    console.error(`Expected ${ids.length} proved properties (${ids.join(', ')}), received ${proved}.`);
+  if (result.status !== 0 || inconclusive || counterexample || missingIds.length > 0 || unexpectedIds.length > 0) {
+    console.error(
+      `Expected proved properties ${ids.join(', ')}; missing: ${missingIds.join(', ') || 'none'}; ` +
+        `unexpected: ${unexpectedIds.join(', ') || 'none'}.`,
+    );
     failed = true;
   }
 }

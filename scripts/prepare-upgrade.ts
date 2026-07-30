@@ -1,6 +1,7 @@
 #!/usr/bin/env tsx
 import hre from 'hardhat';
 import {upgrades} from '@openzeppelin/hardhat-upgrades';
+import {requiredValue} from './deployment/cli-args.js';
 import {prepareUpgradeCommand} from './deployment/commands/prepare-upgrade.js';
 import {readVillageDeploymentManifest} from './deployment/village.js';
 
@@ -18,13 +19,13 @@ function parseArgs(argv: string[]): Args {
   const args: Args = {};
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
-    if (arg === '--manifest') args.manifest = argv[++i];
-    else if (arg === '--contract') args.contract = argv[++i];
-    else if (arg === '--implementation') args.implementation = argv[++i];
-    else if (arg === '--version') args.version = argv[++i];
-    else if (arg === '--network') args.network = argv[++i];
-    else if (arg === '--call') args.call = argv[++i];
-    else if (arg === '--call-args') args.callArgs = argv[++i];
+    if (arg === '--manifest') args.manifest = requiredValue(argv, ++i, arg);
+    else if (arg === '--contract') args.contract = requiredValue(argv, ++i, arg);
+    else if (arg === '--implementation') args.implementation = requiredValue(argv, ++i, arg);
+    else if (arg === '--version') args.version = requiredValue(argv, ++i, arg);
+    else if (arg === '--network') args.network = requiredValue(argv, ++i, arg);
+    else if (arg === '--call') args.call = requiredValue(argv, ++i, arg);
+    else if (arg === '--call-args') args.callArgs = requiredValue(argv, ++i, arg);
     else if (arg === '--help' || arg === '-h') return args;
     else throw new Error(`Unknown argument '${arg}'`);
   }

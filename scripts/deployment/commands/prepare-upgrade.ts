@@ -7,12 +7,14 @@ import {isSupportedUupsContract, readUpgradeAuthority} from '../uups-contracts.j
 import {
   currentImplementationAddress,
   readVillageDeploymentManifest,
+  validateOwnerAuthority,
   writeVillageDeploymentManifest,
   type FinalOwnerConfig,
   type ManifestUpgrade,
   type PendingOwnerAction,
   type VillageDeploymentManifest,
 } from '../village.js';
+import {validateConnectedManifest} from './validation.js';
 
 export interface PrepareUpgradeOptions {
   manifestPath: string;
@@ -47,12 +49,7 @@ export async function prepareUpgradeCommand(
   if (!record || !recordedImplementation) {
     throw new Error(`Manifest has no UUPS deployment for ${options.contractName}`);
   }
-  if (context.networkName !== manifest.network) {
-    throw new Error(`Network '${context.networkName}' does not match manifest`);
-  }
-
-  const chainId = Number((await context.ethers.provider.getNetwork()).chainId);
-  if (chainId !== manifest.chainId) throw new Error(`Connected chain ${chainId} does not match manifest`);
+  await validateConnectedManifest(manifest, context);
   const manifestImplementation = getAddress(recordedImplementation);
   const liveImplementation = getAddress(await context.upgrades.erc1967.getImplementationAddress(record.address));
 
@@ -144,7 +141,7 @@ export async function prepareUpgradeCommand(
   }
   // Simulate from the live authority to check authorization and optional migration calldata without changing state.
   await context.ethers.provider.call({from: authority.current, to: record.address, data});
-  const owner = await classifyAuthority(authority.current, context.ethers);
+  const owner = await classifyAuthority(authority.current, context);
   const ownerTransaction =
     owner.type === 'safe' ? await prepareSafeOwnerActions(owner, [ownerAction], context.provider) : undefined;
   // Persist only a fully validated, deployed, bytecode-hashed, and successfully simulated candidate.
@@ -174,6 +171,9 @@ export async function prepareUpgradeCommand(
   return manifest;
 }
 
-async function classifyAuthority(address: string, ethers: any): Promise<FinalOwnerConfig> {
-  return (await ethers.provider.getCode(address)) === '0x' ? {type: 'eoa', address} : {type: 'safe', address};
+async function classifyAuthority(address: string, context: PrepareUpgradeContext): Promise<FinalOwnerConfig> {
+  const owner: FinalOwnerConfig =
+    (await context.ethers.provider.getCode(address)) === '0x' ? {type: 'eoa', address} : {type: 'safe', address};
+  await validateOwnerAuthority(owner, context);
+  return owner;
 }

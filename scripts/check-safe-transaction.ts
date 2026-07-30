@@ -1,5 +1,6 @@
 #!/usr/bin/env tsx
 import hre from 'hardhat';
+import {requiredValue} from './deployment/cli-args.js';
 import {ownerStatusCommand} from './deployment/commands/owner-status.js';
 
 interface Args {
@@ -12,9 +13,9 @@ function parseArgs(argv: string[]): Args {
   const args: Args = {};
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
-    if (arg === '--manifest') args.manifest = argv[++i];
-    else if (arg === '--network') args.network = argv[++i];
-    else if (arg === '--tx-service-url') args.txServiceUrl = argv[++i];
+    if (arg === '--manifest') args.manifest = requiredValue(argv, ++i, arg);
+    else if (arg === '--network') args.network = requiredValue(argv, ++i, arg);
+    else if (arg === '--tx-service-url') args.txServiceUrl = requiredValue(argv, ++i, arg);
     else if (arg === '--help' || arg === '-h') return args;
     else throw new Error(`Unknown argument '${arg}'`);
   }

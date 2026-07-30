@@ -2,6 +2,7 @@ import {readFile} from 'node:fs/promises';
 import path from 'node:path';
 import hre from 'hardhat';
 import {upgrades} from '@openzeppelin/hardhat-upgrades';
+import {requiredValue} from './cli-args.js';
 import {deployVillage} from './village.js';
 import {
   dependencyAdditions,
@@ -69,12 +70,6 @@ function parseArgs(argv: string[]): Args {
     else throw new Error(`Unknown argument '${argument}'`);
   }
   return args;
-}
-
-function requiredValue(argv: string[], index: number, argument: string): string {
-  const value = argv[index];
-  if (!value || value.startsWith('--')) throw new Error(`${argument} requires a value`);
-  return value;
 }
 
 function printHelp(preset?: DeploymentPreset): void {

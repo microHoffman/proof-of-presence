@@ -1,7 +1,7 @@
 import path from 'node:path';
 import {getAddress, id, isAddress, keccak256, ZeroAddress, ZeroHash} from 'ethers';
 import {deployVillageIgnitionGraph, isPolicyOnlyDeployment, validateSelectedImplementations} from './ignition.js';
-import {prepareSafeOwnerActions, proposeSafeOwnerActions} from './safe-service.js';
+import {prepareSafeOwnerActions, proposeSafeOwnerActions, refreshSafeOwnerActionsStatus} from './safe-service.js';
 import {
   readExistingVillageDeploymentManifest,
   writeVillageDeploymentManifest,
@@ -73,6 +73,7 @@ export interface VillageDeploymentContext {
   displayIgnitionUi?: boolean;
   prepareSafeTransaction?: typeof prepareSafeOwnerActions;
   proposeSafeTransaction?: typeof proposeSafeOwnerActions;
+  refreshSafeTransaction?: typeof refreshSafeOwnerActionsStatus;
   networkName: string;
   projectRoot?: string;
   ignitionRoot?: string;
@@ -217,7 +218,7 @@ export async function deployVillage(
   const [deployer] = await context.ethers.getSigners();
   const deployerAddress = normalizeAddress(deployer.address, 'deployer');
   const finalOwner = normalizeAddress(config.finalOwner.address, 'finalOwner.address');
-  await validateFinalOwner(config.finalOwner, context);
+  await validateOwnerAuthority(config.finalOwner, context);
 
   // The deployer always owns the fresh graph long enough to complete address-dependent configuration.
   await validateSelectedImplementations(context, modules, deployer);
@@ -230,7 +231,7 @@ export async function deployVillage(
     deployerAddress,
   );
   const contracts = deployed.contracts;
-  await addCodeProvenance(context, contracts);
+  await captureCodeProvenance(context, contracts);
   await verifyImplementations(context, contracts);
   await verifyRoles(context, contracts, deployerAddress, initialRoleGrants);
 
@@ -559,18 +560,27 @@ async function verifyFinalAuthority(
   }
 }
 
-async function validateFinalOwner(owner: FinalOwnerConfig, context: VillageDeploymentContext): Promise<void> {
+export async function validateOwnerAuthority(
+  owner: FinalOwnerConfig,
+  context: VillageDeploymentContext,
+): Promise<void> {
   const address = getAddress(owner.address);
   const code = await context.ethers.provider.getCode(address);
   if (owner.type === 'eoa') {
     if (code !== '0x') throw new Error(`EOA final owner ${address} has deployed code`);
     return;
   }
-  if (code === '0x') throw new Error(`Safe final owner ${address} has no deployed code`);
+  if (code === '0x') throw new Error(`Safe authority ${address} has no deployed code`);
   const safe = await context.ethers.getContractAt(SAFE_READ_ABI, address);
-  const actualOwners = (await safe.getOwners()).map((value: string) => getAddress(value)).sort();
-  const threshold = Number(await safe.getThreshold());
-  if (threshold < 1 || threshold > actualOwners.length) throw new Error('Safe final owner has an invalid threshold');
+  let actualOwners: string[];
+  let threshold: number;
+  try {
+    actualOwners = (await safe.getOwners()).map((value: string) => getAddress(value)).sort();
+    threshold = Number(await safe.getThreshold());
+  } catch {
+    throw new Error(`Contract authority ${address} does not expose the required Safe interface`);
+  }
+  if (threshold < 1 || threshold > actualOwners.length) throw new Error('Safe authority has an invalid threshold');
   if (owner.expectedOwners) {
     const expected = owner.expectedOwners.map(getAddress).sort();
     if (JSON.stringify(expected) !== JSON.stringify(actualOwners)) throw new Error('Safe owners do not match config');
@@ -857,16 +867,20 @@ export function currentImplementationAddress(contract: ManifestContract): string
 }
 
 /** Captures runtime bytecode hashes for canonical proxy addresses and their implementations separately. */
-async function addCodeProvenance(
+export async function captureCodeProvenance(
   context: VillageDeploymentContext,
   contracts: Record<string, ManifestContract>,
 ): Promise<void> {
-  for (const record of Object.values(contracts)) {
-    record.runtimeCodeHash = keccak256(await context.ethers.provider.getCode(record.address));
+  for (const [name, record] of Object.entries(contracts)) {
+    const code = await context.ethers.provider.getCode(record.address);
+    if (code === '0x') throw new Error(`Deployed contract ${name} at ${record.address} has no runtime code`);
+    record.runtimeCodeHash = keccak256(code);
     if (record.implementation) {
-      record.implementation.runtimeCodeHash = keccak256(
-        await context.ethers.provider.getCode(record.implementation.address),
-      );
+      const implementationCode = await context.ethers.provider.getCode(record.implementation.address);
+      if (implementationCode === '0x') {
+        throw new Error(`Implementation for ${name} at ${record.implementation.address} has no runtime code`);
+      }
+      record.implementation.runtimeCodeHash = keccak256(implementationCode);
     }
   }
 }
