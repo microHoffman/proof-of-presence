@@ -27,6 +27,7 @@ export interface UpgradeReconciliationResult {
  * Reconciles a prepared upgrade exclusively from the proxy slot and deployed bytecode.
  * Transaction receipts and Safe service state are informational and cannot mark execution.
  * Manifest state is updated only after the proxy points to the prepared implementation and its code matches the recorded hash.
+ * This proves which implementation is active; migration-specific state must be checked separately by the release runbook.
  */
 export async function reconcileExecutedUpgrade(
   contracts: Record<string, ManifestContract>,

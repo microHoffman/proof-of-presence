@@ -253,7 +253,8 @@ describe('Upgrades', function () {
     );
     await token.connect(minter).mint(member.address, 7n);
     const next = await deployImplementation('CommunityTokenUpgradeMock', deployer);
-    const data = token.interface.encodeFunctionData('upgradeToAndCall', [await next.getAddress(), '0x']);
+    const migration = next.interface.encodeFunctionData('initializeUpgrade', [42, false]);
+    const data = token.interface.encodeFunctionData('upgradeToAndCall', [await next.getAddress(), migration]);
 
     await safe.connect(safeOwner).execute(await token.getAddress(), data);
     const upgraded = (await ethers.getContractAt(
@@ -263,6 +264,11 @@ describe('Upgrades', function () {
     )) as Contract;
     expect(await upgraded.version()).to.equal('community-token-upgrade-mock');
     expect(await upgraded.balanceOf(member.address)).to.equal(7n);
+    expect(await upgraded.upgradeValue()).to.equal(42n);
+    await expect(upgraded.initializeUpgrade(43, false)).to.be.revertedWithCustomError(
+      upgraded,
+      'InvalidInitialization',
+    );
   });
 
   it('preserves DynamicPriceSale configuration and pause state across an owner-authorized upgrade', async function () {

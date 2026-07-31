@@ -31,3 +31,17 @@ export function deployVillageUupsProxy<ContractName extends string>(
 
   return {implementation, proxy, instance};
 }
+
+/** Shared deployment seam for the two metadata-specific wrappers over VillageDecayingToken. */
+export function deployVillageDecayingToken<ContractName extends 'VillagePresenceToken' | 'VillageSweatToken'>(
+  m: IgnitionModuleBuilder,
+  contractName: ContractName,
+  villageAccess: ContractFuture<'VillageAccess'>,
+) {
+  const name = m.getParameter<string>('name');
+  const symbol = m.getParameter<string>('symbol');
+  const decayRatePerDay = m.getParameter<string>('decayRatePerDay');
+  const owner = m.getParameter<string>('owner');
+
+  return deployVillageUupsProxy(m, contractName, [name, symbol, villageAccess, decayRatePerDay, owner]);
+}

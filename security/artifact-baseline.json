@@ -143,7 +143,7 @@
     },
     "TokenizedStays": {
       "deployedBytecodeBytes": 20849,
-      "deployedBytecodeSha256": "fe57576467c1b8ba2756c11c02071e3608591b7efaed02d50d960ff1c9a36193",
+      "deployedBytecodeSha256": "d8682f06d9568751c0cec046cd7efd7b1336a72d72ba4e22b49955af75ea0a75",
       "events": {
         "BookingBalanceReconciled(address,uint256,uint256,uint256)": "0x0f0e9684b94e4d0aae24472a23baa23e5f080b7483136ff3d7a74c8b83415d27",
         "BookingCanceled(address,uint16,uint16,uint256)": "0xa8a007a8f6d181846b3661a47edb28c9b4d098dc24b7930a6d82b8e60882f817",

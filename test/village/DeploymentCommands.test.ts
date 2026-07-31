@@ -4,7 +4,7 @@ import path from 'node:path';
 import {expect} from 'chai';
 import hre from 'hardhat';
 import {upgrades as createUpgradesApi} from '@openzeppelin/hardhat-upgrades';
-import {ZeroAddress} from 'ethers';
+import {MaxUint256, ZeroAddress} from 'ethers';
 import {connection, ethers} from '../hardhat.js';
 import {parseVillageDeploymentConfig} from '../../scripts/deployment/spec.js';
 import {ownerStatusCommand} from '../../scripts/deployment/commands/owner-status.js';
@@ -73,6 +73,21 @@ async function deployAccess(slug: string, finalOwnerIndex = 0) {
     deployer: signers[0],
     finalOwner: signers[finalOwnerIndex],
   };
+}
+
+async function deployCommunityToken(slug: string) {
+  const signers = await ethers.getSigners();
+  const outputRoot = await mkdtemp(path.join(tmpdir(), 'village-command-'));
+  const spec = parseVillageDeploymentConfig({
+    schemaVersion: 2,
+    villageSlug: slug,
+    chainId: Number((await ethers.provider.getNetwork()).chainId),
+    contracts: ['CommunityToken'],
+    finalOwner: {type: 'eoa', address: signers[0].address},
+    apiOperator: signers[2].address,
+    communityToken: {maxSupply: MaxUint256.toString()},
+  });
+  return deployVillage(spec, deploymentContext(outputRoot));
 }
 
 async function prepare(manifestPath: string, version: string) {
@@ -152,6 +167,34 @@ describe('Deployment operator commands', function () {
     expect(executed.contracts.VillageAccess.artifact).to.equal('VillageAccessUpgradeMock');
     expect(executed.contracts.VillageAccess.implementation?.address).to.equal(upgrade.newImplementation);
     expect(executed.upgrades![0].executedAt?.transactionHash).to.match(/^0x[0-9a-f]{64}$/);
+  });
+
+  it('executes and verifies migration calldata through the EOA upgrade commands', async function () {
+    const {manifestPath} = await deployCommunityToken('command-submit-migration');
+    const prepared = await prepareUpgradeCommand(
+      {
+        manifestPath,
+        contractName: 'CommunityToken',
+        implementation: 'CommunityTokenUpgradeMock',
+        version: 'eoa-migration',
+        call: 'initializeUpgrade',
+        callArgs: '[42,false]',
+      },
+      upgradeContext(),
+    );
+    expect(prepared.upgrades![0].callData).not.to.equal('0x');
+
+    const executed = await upgradeSubmitCommand(
+      {manifestPath, upgrade: 'CommunityToken:eoa-migration'},
+      {ethers, networkName: 'default'},
+    );
+    const upgraded = await ethers.getContractAt('CommunityTokenUpgradeMock', executed.contracts.CommunityToken.address);
+    expect(executed.upgrades![0].status).to.equal('executed');
+    expect(await upgraded.upgradeValue()).to.equal(42n);
+    await expect(upgraded.initializeUpgrade(43, false)).to.be.revertedWithCustomError(
+      upgraded,
+      'InvalidInitialization',
+    );
   });
 
   it('reconciles an externally executed prepared upgrade from the proxy slot and Upgraded event', async function () {

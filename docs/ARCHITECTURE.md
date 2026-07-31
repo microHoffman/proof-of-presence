@@ -1,5 +1,15 @@
 # Architecture
 
+## Protocol lineage
+
+Protocol V1 is the live Diamond-based deployment documented on `main`. Protocol V2 in this branch deploys a new UUPS
+contract graph; it is not a storage-compatible upgrade of the V1 Diamond and does not import V1 balances, bookings,
+memberships, roles, or authority automatically. A production transition from V1 requires a separate audited migration
+design and rehearsal.
+
+The deployment config and manifest value `schemaVersion: 2` names a JSON format only. It must not be interpreted as a
+protocol version or evidence that V1 state has been migrated.
+
 ## Source boundaries
 
 The repository has two production source areas:
@@ -43,9 +53,9 @@ path-dependent consequence is documented in the threat model.
 enforces a fixed 365-day lock window, Gregorian date validity, a bounded booking horizon, pause controls, and
 role-authorized managed cancellation. `previewCreateBookings` reports the account's current credited deposit, locked
 requirements before and after a proposed batch, and the exact resulting deficit. The allowance path pulls that live
-deficit; the permit path signs that same amount. A permit already submitted by a relayer remains usable only when its
-resulting allowance covers the live deficit; other failed or stale permits revert atomically. Off-chain booking
-workflow state such as confirmation or check-in does not live in this contract.
+deficit; the permit path signs that same amount. If the permit call fails for any reason, the operation may still use
+any sufficient allowance already granted by the account; without sufficient allowance it reverts atomically.
+Off-chain booking workflow state such as confirmation or check-in does not live in this contract.
 
 `VillageCitizenNFT` is a UUPS-upgradeable ERC-721 citizenship credential with Metadata, Enumerable, ERC-5192, and
 ERC-4906 support. Credentials are permanently non-transferable and expose no approval path. Suspension and revocation

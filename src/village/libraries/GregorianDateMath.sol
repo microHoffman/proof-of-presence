@@ -61,7 +61,8 @@ library GregorianDateMath {
     function isLeapYear(uint256 year) internal pure returns (bool) {
         // Modulo is deterministic calendar arithmetic, not a source of randomness.
         // Equality is required by the Gregorian leap-year definition.
-        // slither-disable-next-line weak-prng,incorrect-equality
+        // slither-disable-next-line weak-prng
+        // slither-disable-next-line incorrect-equality
         return year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
     }
 }

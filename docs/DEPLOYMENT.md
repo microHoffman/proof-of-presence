@@ -7,11 +7,13 @@ state, and writes a slim operational manifest.
 ## Deployment schemas
 
 Deployment configs and manifests both use `schemaVersion: 2`. The version identifies each strict JSON wire format; it
-is unrelated to contract versions, proxy storage versions, initializer revisions, or Ignition journals. No earlier
-production deployment schema is supported, so removed draft fields fail validation instead of being migrated.
+is unrelated to protocol V1/V2, contract versions, proxy storage versions, initializer revisions, or Ignition
+journals. The production V1 system on `main` predates this format and has no schema-1 manifest. Within the V2 tooling,
+only schema 2 is supported, so removed draft fields fail validation instead of being migrated.
 All unsigned-integer contract values are decimal strings. JSON numbers are rejected even when small, avoiding a
-second representation that becomes unsafe above JavaScript's exact-integer range. Chain IDs, fee basis points, and
-Safe thresholds remain bounded JSON numbers as defined by the schema.
+second representation that becomes unsafe above JavaScript's exact-integer range. Decimal strings must fit Solidity
+`uint256`; Presence/Sweat `decayRatePerDay` additionally cannot exceed the contract limit of `4399711`. Chain IDs, fee
+basis points, and Safe thresholds remain bounded JSON numbers as defined by the schema.
 
 ## Generic config
 
@@ -147,7 +149,8 @@ Explorer availability therefore cannot change deployment or manifest state.
 
 ```sh
 yarn upgrade:prepare -- --manifest <manifest.json> --contract <name> \
-  --implementation <artifact> --version <version> [--network <network>]
+  --implementation <artifact> --version <version> [--network <network>] \
+  [--call <migration-function> --call-args '<json-array>']
 yarn upgrade:submit -- --manifest <manifest.json> --upgrade <name>:<version> [--network <network>]
 yarn upgrade:status -- --manifest <manifest.json> --upgrade <name>:<version> [--network <network>]
 ```
@@ -157,3 +160,7 @@ simulates `upgradeToAndCall` from live authority, and records a Safe or EOA acti
 the ERC-1967 slot, implementation code hash, and exact `Upgraded` event reconcile. A failed Safe proposal is reported
 by the status command and replaced by the next submit command. Preparation is blocked until the deployment ownership
 handoff is complete and no ownership/default-admin transfer remains pending.
+
+Reconciliation proves that the prepared implementation became active. It does not prove the intended semantic result
+of arbitrary migration calldata. Every release that supplies `--call` must define and check a migration-specific
+postcondition after the transaction, in addition to reviewing the exact target and calldata before submission.

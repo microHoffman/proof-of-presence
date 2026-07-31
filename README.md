@@ -1,8 +1,12 @@
 # Closer smart contracts
 
-This repository contains the current Closer village contracts and their deployment, upgrade, verification, and
-security tooling. The former contract system is preserved separately on the `legacy-v1` branch, created from
-`main` at commit `16735b858567a87aaa6af430bf8600ec0531a392`.
+This branch contains protocol V2: a fresh UUPS-based Closer village graph plus its deployment, upgrade, verification,
+and security tooling. Protocol V1 is the deployed Diamond-based system recorded on `main` (with an archival snapshot
+on `legacy-v1`) and has live Celo mainnet state. Deploying V2 does not upgrade or migrate that V1 state.
+
+A production replacement of V1 therefore requires a separately reviewed migration design, snapshot/reconciliation
+procedure, rehearsal, and rollback policy. That work is a release blocker and is intentionally not hidden inside the
+fresh-deployment commands in this branch.
 
 ## Quick start
 
@@ -45,7 +49,8 @@ yarn deploy:village -- --config config.json --network celoSepolia
 yarn deploy:tdf -- --config config.json --network celoSepolia
 yarn hardhat --network celoSepolia ignition verify <deployment-id>
 yarn upgrade:prepare -- --manifest <manifest.json> --contract <name> \
-  --implementation <artifact> --version <id> --network <network>
+  --implementation <artifact> --version <id> --network <network> \
+  [--call <migration-function> --call-args '<json-array>']
 yarn upgrade:submit -- --manifest <manifest.json> --upgrade <name>:<id>
 yarn upgrade:status -- --manifest <manifest.json> --upgrade <name>:<id>
 ```
@@ -62,10 +67,10 @@ an API or UI has a concrete release format to consume.
 - Deployment config: `schemaVersion: 2`.
 - Deployment manifest: `schemaVersion: 2`.
 
-`schemaVersion` identifies the JSON wire format. It is not a contract version, proxy storage version, or Ignition
-journal version. No earlier production deployments exist, so only schema 2 is supported; removed draft shapes fail
-before deployment instead of being migrated. See [Deployment schemas](./docs/DEPLOYMENT.md#deployment-schemas) for
-the full explanation.
+`schemaVersion` identifies the JSON wire format. It is not protocol V2, a contract version, proxy storage version, or
+Ignition journal version. Production protocol V1 predates this manifest format; there is no schema-1 V1 manifest to
+load. Within the V2 deployment tooling only schema 2 is supported, and removed draft shapes fail before deployment
+instead of being migrated. See [Deployment schemas](./docs/DEPLOYMENT.md#deployment-schemas) for the full explanation.
 
 ## Security
 

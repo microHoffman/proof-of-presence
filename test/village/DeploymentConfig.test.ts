@@ -3,11 +3,12 @@ import {MaxUint256, parseEther} from 'ethers';
 import {ethers} from '../hardhat.js';
 import projectConfig from '../../config/project.json';
 import {canonicalJsonStringify} from '../../scripts/deployment/canonical-json.js';
-import {CONTRACT_NAMES, UUPS_CONTRACTS, UUPS_CONTRACT_NAMES} from '../../scripts/deployment/contract-registry.js';
+import {CONTRACT_NAMES, CONTRACT_REGISTRY, UUPS_CONTRACT_NAMES} from '../../scripts/deployment/contract-registry.js';
 import {parseTdfDeploymentConfig, parseVillageDeploymentConfig} from '../../scripts/deployment/spec.js';
 import {
   dependencyAdditions,
   graphIdForSpec,
+  MAX_DECAY_RATE_PER_DAY,
   TDF_COMMUNITY_TOKEN_MAX_SUPPLY,
   TDF_DEFAULT_CLOSER_FEE_BPS,
   TDF_DYNAMIC_PRICE_SALE_CAP,
@@ -20,7 +21,9 @@ describe('Deployment schema and resolution', function () {
   it('keeps deployment, UUPS, and production security inventories aligned', function () {
     const productionNames = projectConfig.productionContracts.map(([, contractName]) => contractName);
     expect(productionNames).to.include.members([...CONTRACT_NAMES, 'VillageUUPSProxy']);
-    expect([...UUPS_CONTRACT_NAMES]).to.deep.equal(Object.keys(UUPS_CONTRACTS));
+    expect([...UUPS_CONTRACT_NAMES]).to.deep.equal(
+      CONTRACT_NAMES.filter((name) => CONTRACT_REGISTRY[name].kind === 'uups'),
+    );
     expect(CONTRACT_NAMES).to.deep.equal(['TDFTransferPolicy', ...UUPS_CONTRACT_NAMES]);
   });
 
@@ -200,6 +203,44 @@ describe('Deployment schema and resolution', function () {
         presenceToken: {decayRatePerDay: '42'},
       }).presenceToken?.decayRatePerDay,
     ).to.equal('42');
+  });
+
+  it('rejects decimal deployment values outside their Solidity bounds', async function () {
+    const [, owner, operator] = await ethers.getSigners();
+    const input = accessInput(owner.address, operator.address);
+    expect(() =>
+      parseVillageDeploymentConfig({
+        ...input,
+        contracts: ['CommunityToken'],
+        communityToken: {maxSupply: (MaxUint256 + 1n).toString()},
+      }),
+    ).to.throw('must fit in a uint256');
+
+    expect(() =>
+      parseVillageDeploymentConfig({
+        ...input,
+        contracts: ['VillagePresenceToken'],
+        presenceToken: {decayRatePerDay: (MAX_DECAY_RATE_PER_DAY + 1n).toString()},
+      }),
+    ).to.throw(`must not exceed ${MAX_DECAY_RATE_PER_DAY}`);
+    expect(() =>
+      parseVillageDeploymentConfig({
+        ...input,
+        contracts: ['CommunityToken'],
+        communityToken: {maxSupply: 'not-a-number'},
+      }),
+    ).to.throw('decimal string');
+
+    const boundary = parseVillageDeploymentConfig({
+      ...input,
+      contracts: ['VillagePresenceToken'],
+      presenceToken: {decayRatePerDay: MAX_DECAY_RATE_PER_DAY.toString()},
+    });
+    expect(boundary.presenceToken?.decayRatePerDay).to.equal(MAX_DECAY_RATE_PER_DAY.toString());
+
+    const implementation = await ethers.deployContract('VillagePresenceToken');
+    await implementation.waitForDeployment();
+    expect(await implementation.MAX_DECAY_RATE_PER_DAY()).to.equal(MAX_DECAY_RATE_PER_DAY);
   });
 
   it('requires an exact, internally valid Safe owner set and threshold', async function () {

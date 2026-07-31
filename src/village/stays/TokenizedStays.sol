@@ -275,10 +275,9 @@ contract TokenizedStays is
         _depositFor(_msgSender(), amount);
     }
 
-    /// @notice Credits a deposit after obtaining an exact EIP-2612 allowance in the same transaction.
-    /// @dev The deposited token must implement EIP-2612. If a relayer already consumed the signature, the deposit may
-    /// continue only when the resulting allowance still covers `amount`. A failed transfer or deposit reverts
-    /// atomically.
+    /// @notice Credits a deposit using an exact EIP-2612 permit or sufficient existing allowance.
+    /// @dev The deposited token must implement EIP-2612. If `permit` fails for any reason, the deposit may continue
+    /// when the account already has sufficient allowance. A failed transfer or deposit reverts atomically.
     /// @param amount CommunityToken amount to permit, transfer, and credit.
     /// @param deadline Last timestamp at which the permit signature is valid.
     /// @param v ECDSA signature recovery byte.
@@ -318,11 +317,10 @@ contract TokenizedStays is
         _createBookings(_msgSender(), bookings);
     }
 
-    /// @notice Creates bookings after obtaining an exact EIP-2612 allowance for the resulting balance deficit.
-    /// @dev Booking changes are staged before the live deficit is known. If a relayer already consumed the signature,
-    /// the transaction may continue only when the resulting allowance covers the live deficit. Other failed or stale
-    /// permits roll the complete transaction back atomically. Use `createBookings` when no additional deposit is
-    /// required.
+    /// @notice Creates bookings using an exact EIP-2612 permit or sufficient existing allowance for the live deficit.
+    /// @dev Booking changes are staged before the live deficit is known. If `permit` fails for any reason, the
+    /// transaction may continue when the account already has sufficient allowance for the live deficit. Otherwise the
+    /// complete transaction rolls back atomically. Use `createBookings` when no additional deposit is required.
     /// @param bookings Dates and per-date prices to store.
     /// @param deadline Last timestamp at which the permit signature is valid.
     /// @param v ECDSA signature recovery byte.
@@ -1047,8 +1045,8 @@ contract TokenizedStays is
         try IERC20Permit(address(token)).permit(account, address(this), amount, deadline, v, r, s) {} catch (
             bytes memory reason
         ) {
-            // A public permit may be consumed by a relayer before this transaction; only its resulting allowance
-            // makes that failed permit safe to ignore.
+            // A failed permit is safe to ignore only when the current allowance already authorizes the exact transfer
+            // performed by the calling flow.
             if (token.allowance(account, address(this)) < amount) {
                 // The successful return is unreachable because `success` is fixed false; this call only bubbles `reason`.
                 // slither-disable-next-line unused-return

@@ -20,8 +20,8 @@ import type {
   VillageDeploymentContext,
 } from './village.js';
 import {resolvedCloserFeeBps} from './village.js';
-import {graphHashForContracts, graphIdForSpec, symbolFromSlug, titleFromSlug} from './spec.js';
-import type {UupsContractName} from './uups-contracts.js';
+import {graphHashForContracts, graphIdForSpec, symbolFromSlug, titleFromSlug, type ContractName} from './spec.js';
+import {isSupportedUupsContract, type UupsContractName} from './uups-contracts.js';
 
 export interface IgnitionVillageDeployment {
   module: IgnitionModule;
@@ -35,17 +35,10 @@ export interface IgnitionVillageDeployment {
 /** OpenZeppelin validation is the mandatory preflight before Ignition can submit the graph. */
 export async function validateSelectedImplementations(
   context: VillageDeploymentContext,
-  modules: NormalizedModules,
+  contracts: readonly ContractName[],
   deployer: unknown,
 ): Promise<void> {
-  const selected: UupsContractName[] = [];
-  if (!isPolicyOnlyDeployment(modules)) selected.push('VillageAccess');
-  if (modules.communityToken) selected.push('CommunityToken');
-  if (modules.presenceToken) selected.push('VillagePresenceToken');
-  if (modules.sweatToken) selected.push('VillageSweatToken');
-  if (modules.tokenizedStays) selected.push('TokenizedStays');
-  if (modules.citizenNft) selected.push('VillageCitizenNFT');
-  if (modules.dynamicPriceSale) selected.push('DynamicPriceSale');
+  const selected = contracts.filter(isSupportedUupsContract);
 
   if (selected.length > 0 && !context.upgrades?.validateImplementation) {
     throw new Error('OpenZeppelin upgrades validation is required before every Ignition UUPS deployment');

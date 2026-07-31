@@ -1,23 +1,14 @@
 import {getAddress, isAddress, keccak256, toUtf8Bytes, ZeroAddress} from 'ethers';
 import {z} from 'zod';
 import {canonicalJsonStringify} from './canonical-json.js';
-import {CONTRACT_NAMES, type ContractName} from './contract-registry.js';
+import {CONTRACT_NAMES, CONTRACT_REGISTRY, type ContractName} from './contract-registry.js';
 
 export {CONTRACT_NAMES, type ContractName} from './contract-registry.js';
 export type DeploymentPreset = 'tdf';
 
-const CONTRACT_DEPENDENCIES: Readonly<Record<ContractName, readonly ContractName[]>> = {
-  TDFTransferPolicy: [],
-  VillageAccess: [],
-  CommunityToken: ['VillageAccess'],
-  VillagePresenceToken: ['VillageAccess'],
-  VillageSweatToken: ['VillageAccess'],
-  VillageCitizenNFT: ['VillageAccess'],
-  TokenizedStays: ['VillageAccess', 'CommunityToken'],
-  DynamicPriceSale: ['VillageAccess', 'CommunityToken'],
-};
-
 export const TDF_CONTRACTS = [...CONTRACT_NAMES] as const;
+export const MAX_DECAY_RATE_PER_DAY = 4_399_711n;
+const UINT256_MAX = 2n ** 256n - 1n;
 export const TDF_COMMUNITY_TOKEN_MAX_SUPPLY = 18_600n * 10n ** 18n;
 export const TDF_DYNAMIC_PRICE_SALE_CAP = 15_097_500_000_000_000_000_000n;
 export const TDF_MINIMUM_PURCHASE = 1n * 10n ** 18n;
@@ -49,7 +40,8 @@ const address = z
 const nonZeroAddress = address.refine((value) => value !== ZeroAddress, 'must not be the zero address');
 const uint = z
   .string({error: 'must be an unsigned integer encoded as a decimal string'})
-  .regex(/^\d+$/, 'must be an unsigned integer encoded as a decimal string');
+  .regex(/^\d+$/, 'must be an unsigned integer encoded as a decimal string')
+  .refine((value) => decimalStringAtMost(value, UINT256_MAX), 'must fit in a uint256');
 const role = z.string().min(1);
 const contractName = z.enum(CONTRACT_NAMES);
 
@@ -93,8 +85,15 @@ const citizenNft = z.strictObject({
 const decayingToken = z.strictObject({
   name: z.string().min(1).optional(),
   symbol: z.string().min(1).optional(),
-  decayRatePerDay: uint,
+  decayRatePerDay: uint.refine(
+    (value) => decimalStringAtMost(value, MAX_DECAY_RATE_PER_DAY),
+    `must not exceed ${MAX_DECAY_RATE_PER_DAY}`,
+  ),
 });
+
+function decimalStringAtMost(value: string, maximum: bigint): boolean {
+  return /^\d+$/.test(value) && BigInt(value) <= maximum;
+}
 const tdfTransferPolicy = z.strictObject({
   treasury: nonZeroAddress,
   allowedCounterparties: z.array(nonZeroAddress).optional(),
@@ -260,7 +259,7 @@ export function parseTdfDeploymentConfig(value: unknown): ResolvedDeploymentSpec
 export function resolveContractDependencies(requested: readonly ContractName[]): ContractName[] {
   const resolved = new Set<ContractName>();
   const visit = (name: ContractName): void => {
-    for (const dependency of CONTRACT_DEPENDENCIES[name]) visit(dependency);
+    for (const dependency of CONTRACT_REGISTRY[name].dependencies) visit(dependency);
     resolved.add(name);
   };
   for (const name of requested) visit(name);

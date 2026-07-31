@@ -55,8 +55,9 @@ The following are known and accepted for V2:
 - Deployment Safe validation requires code plus `getOwners()`/`getThreshold()` responses and exact configured
   membership/threshold. It does not attest a particular Safe proxy, singleton, or Safe release. Operators must verify
   that identity independently before approving a production config.
-- The TDF curve deliberately preserves the historical V1 pricing formula and quote vectors. This is economic formula
-  compatibility, not support for an older V2 contract, storage layout, deployment schema, or production deployment.
+- The TDF curve deliberately preserves the production V1 pricing formula and quote vectors. This is economic formula
+  compatibility only; V2 does not preserve the V1 Diamond storage layout or migrate live V1 state.
 
-All V2 deployment schemas and initial storage layouts start at their current definitions. There is no compatibility
-branch for an earlier production V2 deployment.
+All V2 deployment schemas and initial storage layouts start at their current definitions. There is no earlier
+production V2 deployment to upgrade in place. The existing production V1 deployment is separate, and a transition of
+its balances, bookings, memberships, roles, or authority requires an independently reviewed migration procedure.

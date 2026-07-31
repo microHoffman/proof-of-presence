@@ -1,21 +1,74 @@
 /**
- * Canonical deployment and UUPS workflow metadata.
+ * Canonical deployment metadata.
  *
- * Ignition still owns dependency ordering; this registry owns only stable contract identity,
- * upgrade-authority semantics, and the upgrade test implementation paired with each UUPS module.
+ * Object insertion order is the canonical deployment/manifest order. Dependencies are
+ * resolved by the config parser, while Ignition keeps the concrete graph explicit.
  */
-export const UUPS_CONTRACTS = {
-  VillageAccess: {authority: 'default-admin', upgradeTestImplementation: 'VillageAccessUpgradeMock'},
-  CommunityToken: {authority: 'ownable', upgradeTestImplementation: 'CommunityTokenUpgradeMock'},
-  VillagePresenceToken: {authority: 'ownable', upgradeTestImplementation: 'PresenceTokenUpgradeMock'},
-  VillageSweatToken: {authority: 'ownable', upgradeTestImplementation: 'SweatTokenUpgradeMock'},
-  TokenizedStays: {authority: 'ownable', upgradeTestImplementation: 'TokenizedStaysUpgradeMock'},
-  VillageCitizenNFT: {authority: 'ownable', upgradeTestImplementation: 'VillageCitizenNFTUpgradeMock'},
-  DynamicPriceSale: {authority: 'ownable', upgradeTestImplementation: 'DynamicPriceSaleUpgradeMock'},
+export const CONTRACT_REGISTRY = {
+  TDFTransferPolicy: {
+    kind: 'plain',
+    dependencies: [],
+  },
+  VillageAccess: {
+    kind: 'uups',
+    dependencies: [],
+    authority: 'default-admin',
+    upgradeTestImplementation: 'VillageAccessUpgradeMock',
+  },
+  CommunityToken: {
+    kind: 'uups',
+    dependencies: ['VillageAccess'],
+    authority: 'ownable',
+    upgradeTestImplementation: 'CommunityTokenUpgradeMock',
+  },
+  VillagePresenceToken: {
+    kind: 'uups',
+    dependencies: ['VillageAccess'],
+    authority: 'ownable',
+    upgradeTestImplementation: 'PresenceTokenUpgradeMock',
+  },
+  VillageSweatToken: {
+    kind: 'uups',
+    dependencies: ['VillageAccess'],
+    authority: 'ownable',
+    upgradeTestImplementation: 'SweatTokenUpgradeMock',
+  },
+  TokenizedStays: {
+    kind: 'uups',
+    dependencies: ['VillageAccess', 'CommunityToken'],
+    authority: 'ownable',
+    upgradeTestImplementation: 'TokenizedStaysUpgradeMock',
+  },
+  VillageCitizenNFT: {
+    kind: 'uups',
+    dependencies: ['VillageAccess'],
+    authority: 'ownable',
+    upgradeTestImplementation: 'VillageCitizenNFTUpgradeMock',
+  },
+  DynamicPriceSale: {
+    kind: 'uups',
+    dependencies: ['VillageAccess', 'CommunityToken'],
+    authority: 'ownable',
+    upgradeTestImplementation: 'DynamicPriceSaleUpgradeMock',
+  },
 } as const;
 
-export type UupsContractName = keyof typeof UUPS_CONTRACTS;
+export type ContractName = keyof typeof CONTRACT_REGISTRY;
+export type ContractMetadata = (typeof CONTRACT_REGISTRY)[ContractName];
+export type UupsContractMetadata = Extract<ContractMetadata, {kind: 'uups'}>;
+export type UupsContractName = {
+  [Name in ContractName]: (typeof CONTRACT_REGISTRY)[Name]['kind'] extends 'uups' ? Name : never;
+}[ContractName];
 
-export const UUPS_CONTRACT_NAMES = Object.keys(UUPS_CONTRACTS) as UupsContractName[];
-export const CONTRACT_NAMES = ['TDFTransferPolicy', ...UUPS_CONTRACT_NAMES] as const;
-export type ContractName = (typeof CONTRACT_NAMES)[number];
+export const CONTRACT_NAMES = Object.keys(CONTRACT_REGISTRY) as [ContractName, ...ContractName[]];
+export const UUPS_CONTRACT_NAMES = CONTRACT_NAMES.filter(
+  (name): name is UupsContractName => CONTRACT_REGISTRY[name].kind === 'uups',
+);
+
+export function contractMetadata(name: ContractName): ContractMetadata {
+  return CONTRACT_REGISTRY[name];
+}
+
+export function uupsContractMetadata(name: UupsContractName): UupsContractMetadata {
+  return CONTRACT_REGISTRY[name] as UupsContractMetadata;
+}

@@ -225,7 +225,7 @@ export async function deployVillage(
   await validateOwnerAuthority(config.finalOwner, context);
 
   // The deployer always owns the fresh graph long enough to complete address-dependent configuration.
-  await validateSelectedImplementations(context, modules, deployer);
+  await validateSelectedImplementations(context, config.contracts, deployer);
   const deployed = await deployVillageIgnitionGraph(
     config,
     context,

@@ -1,5 +1,10 @@
 import {getAddress} from 'ethers';
-import {UUPS_CONTRACTS, type UupsContractName} from './contract-registry.js';
+import {
+  CONTRACT_REGISTRY,
+  type ContractName,
+  type UupsContractName,
+  uupsContractMetadata,
+} from './contract-registry.js';
 
 /**
  * Canonical registry for contracts supported by the repository's UUPS deployment and upgrade workflows.
@@ -8,7 +13,7 @@ import {UUPS_CONTRACTS, type UupsContractName} from './contract-registry.js';
  * the live upgrade authority. A future UUPS contract with different authority semantics must add an explicit adapter
  * here rather than silently falling through to Ownable behavior.
  */
-export {UUPS_CONTRACTS, type UupsContractName} from './contract-registry.js';
+export {UUPS_CONTRACT_NAMES, type UupsContractName} from './contract-registry.js';
 
 export interface UpgradeAuthority {
   current: string;
@@ -16,7 +21,9 @@ export interface UpgradeAuthority {
 }
 
 export function isSupportedUupsContract(contractName: string): contractName is UupsContractName {
-  return Object.hasOwn(UUPS_CONTRACTS, contractName);
+  return (
+    Object.hasOwn(CONTRACT_REGISTRY, contractName) && CONTRACT_REGISTRY[contractName as ContractName].kind === 'uups'
+  );
 }
 
 /** Reads the current and pending authority through the registered authority adapter. */
@@ -29,7 +36,7 @@ export async function readUpgradeAuthority(
     throw new Error(`'${contractName}' is not a supported UUPS contract`);
   }
 
-  if (UUPS_CONTRACTS[contractName].authority === 'default-admin') {
+  if (uupsContractMetadata(contractName).authority === 'default-admin') {
     const access = await ethers.getContractAt(
       [
         'function defaultAdmin() view returns (address)',

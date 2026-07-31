@@ -30,21 +30,38 @@ Review the printed requested/auto-added/resolved contract sets before transactio
 resolved spec must reconcile the same addresses. A changed resolved spec under the same chain/slug must fail with a
 manifest collision.
 
+Complete and retain evidence for all four release rehearsals:
+
+1. Verify the Ignition deployment on Celo Sepolia and inspect the explorer presentation of every plain contract,
+   proxy, and implementation. Record any provider-specific retry that was required.
+2. Deploy with a real EOA deployer and the intended Safe as `finalOwner`. Submit and reconcile the EOA-to-Safe
+   handoff, then confirm the manifest is `complete`, no owner action remains pending, and every live owner/default admin
+   is the Safe.
+3. With the Safe owning a dedicated rehearsal proxy, prepare, review, execute, and reconcile a Safe-owned upgrade with
+   nonempty migration calldata. The standard rehearsal candidate is `CommunityTokenUpgradeMock` with
+   `initializeUpgrade(42, false)`; after execution require `upgradeValue() == 42` as the migration-specific
+   postcondition.
+4. On a clean checkout or machine at the same source revision, restore only the reviewed config, matching real-network
+   Ignition directory, and existing manifest. Reinstall the pinned toolchain, rerun the same command, and confirm it
+   resumes/reconciles the same addresses without submitting replacement deployments.
+
 ## Production deployment
 
-1. Run the appropriate deploy command on `celo`.
-2. Inspect `deployments/villages/<chainId>/<slug>.json` and `ignition/deployments/<deployment-id>/`.
-3. If ownership is pending, submit or propose it and later reconcile:
+1. If this release replaces the live V1 system, stop until the separately audited migration, snapshot reconciliation,
+   rehearsal, and rollback procedure is approved. The fresh V2 deployment command does not migrate V1 state.
+2. Run the appropriate deploy command on `celo`.
+3. Inspect `deployments/villages/<chainId>/<slug>.json` and `ignition/deployments/<deployment-id>/`.
+4. If ownership is pending, submit or propose it and later reconcile:
 
 ```sh
 yarn owner:submit -- --manifest <manifest.json> --network celo
 yarn owner:status -- --manifest <manifest.json> --network celo
 ```
 
-4. Require manifest status `complete`, an empty `pendingOwnerActions`, correct live owners/default admin, expected role
+5. Require manifest status `complete`, an empty `pendingOwnerActions`, correct live owners/default admin, expected role
    membership with no unexpected operational-role holders, correct wiring and immutable configuration, nonempty
    bytecode, matching code hashes, and matching ERC-1967 slots.
-5. Verify with the explicit Ignition command printed by deployment:
+6. Verify with the explicit Ignition command printed by deployment:
 
 ```sh
 yarn hardhat --network celo ignition verify <deployment-id>
@@ -71,7 +88,8 @@ Prepare, submit, and reconcile as three explicit steps:
 
 ```sh
 yarn upgrade:prepare -- --manifest <manifest.json> --contract <name> \
-  --implementation <artifact> --version <version> --network celo
+  --implementation <artifact> --version <version> --network celo \
+  [--call <migration-function> --call-args '<json-array>']
 yarn upgrade:submit -- --manifest <manifest.json> --upgrade <name>:<version> --network celo
 yarn upgrade:status -- --manifest <manifest.json> --upgrade <name>:<version> --network celo
 ```
@@ -81,3 +99,15 @@ Commit the updated manifest and the upgrade Ignition directory after review.
 Upgrade preparation must reject a `pending-handoff` manifest or any live pending ownership/default-admin transfer.
 For Safe submissions, re-check the proposed batch and nonce in the Safe UI; the command rebuilds the transaction from
 the current incomplete actions and current nonce on every submission.
+
+For every upgrade, reviewers must record the expected proxy target, candidate implementation, `upgradeToAndCall`
+calldata, and any decoded migration function/arguments before signing. A successful receipt alone shows that the call
+did not revert; it is not a semantic assertion about the migrated state. After execution:
+
+1. Run `upgrade:status` and require the prepared implementation address, runtime-code hash, ERC-1967 slot, and unique
+   `Upgraded` event to reconcile.
+2. Query and record the release-specific postcondition for every migration call. Examples include an initialized
+   version/value, a newly configured dependency, or an exact transformed-state invariant.
+3. Confirm preserved pre-upgrade state and that a one-time reinitializer cannot be called again.
+4. Commit the reconciled manifest and test evidence. Do not mark the release complete when the implementation
+   reconciles but a migration-specific postcondition fails or was never defined.

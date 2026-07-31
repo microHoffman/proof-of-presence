@@ -1,25 +1,31 @@
 # Remaining work
 
-Last reconciled: 2026-07-29
+Last reconciled: 2026-07-31
 
-The contract and deployment implementation is complete for the current architecture. Remaining items are
-live-network rehearsal, independent review, concrete consumer integration, product decisions, and rollout.
+The V2 contracts and local deployment/upgrade workflows are implemented and covered by automated checks. The release
+is not audit-ready until the V1 transition scope and the real-network operational rehearsals below are complete.
 
-## Contract repository
+## Pre-audit release blockers
 
-- Rehearse built-in Ignition verification on Celo Sepolia, including proxy/implementation presentation and
-  provider-specific failures.
-- Rehearse EOA-to-Safe ownership handoff and a Safe-owned UUPS upgrade using the separate prepare, submit, and status
-  commands.
-- Prove a fresh operator environment can restore the reviewed config, Ignition directory, and any existing manifest
-  and resume without redeployment.
-- Run the standard release suite plus manual deep fuzz/invariant, coverage, Aderyn, Wake, and targeted mutation
-  suites against the release candidate.
-- Triage static-analysis and dependency findings, freeze an audit revision, and obtain an independent audit.
+- Design the production V1-to-V2 transition in a separate branch: enumerate live V1 balances, bookings, memberships,
+  roles, authorities, and sale state; define snapshot/reconciliation rules, duplicate-claim prevention, activation,
+  rollback, and user communication; add tests and rehearse it. Integrate and include that design in the audit scope
+  before treating V2 as a replacement for the live Celo deployment.
+- Rehearse built-in Ignition verification on Celo Sepolia, including plain contracts, proxies, implementations, and
+  provider-specific retry behavior.
+- Rehearse the real EOA-to-Safe ownership handoff and a Safe-owned UUPS upgrade with nonempty migration calldata using
+  the separate prepare, submit, and status commands. Record both implementation reconciliation and the explicit
+  migration-state postcondition.
+- Prove that a clean operator environment can restore the reviewed config, matching Ignition directory, and existing
+  manifest and resume/reconcile without redeploying.
+- Run the standard release suite plus deep fuzz/invariant, coverage, Aderyn, Wake, Slither, dependency, artifact, and
+  targeted mutation gates against the final integrated revision. Triage every delta, freeze the audit commit, and
+  obtain an independent audit.
 
 ## Consumer integration
 
-No API/UI descriptor is generated today. When a concrete consumer release exists:
+No API/UI descriptor is generated today. This is not part of the current pre-audit implementation scope. When a
+concrete consumer release exists:
 
 - define the smallest versioned projection it needs from committed manifests and Hardhat/Ignition artifacts;
 - decide whether historical ABI revisions are actually required for indexing;

@@ -1,10 +1,10 @@
 #!/usr/bin/env tsx
 import hre from 'hardhat';
 import {upgrades} from '@openzeppelin/hardhat-upgrades';
-import {UUPS_CONTRACTS} from './deployment/contract-registry.js';
+import {UUPS_CONTRACT_NAMES, uupsContractMetadata} from './deployment/contract-registry.js';
 
-const upgradePairs = Object.entries(UUPS_CONTRACTS).map(
-  ([contractName, {upgradeTestImplementation}]) => [contractName, upgradeTestImplementation] as const,
+const upgradePairs = UUPS_CONTRACT_NAMES.map(
+  (contractName) => [contractName, uupsContractMetadata(contractName).upgradeTestImplementation] as const,
 );
 
 async function main(): Promise<void> {
